@@ -37,8 +37,8 @@ public class LivelyConfig {
         public boolean mode = false;
         public boolean smoothing = true;
         public boolean cluster_growing = true;
-        public double cluster_merge_distance = 4.0;
-        public int max_influence_radius = 8;
+        public double cluster_merge_distance = 6.0;
+        public int max_influence_radius = 3;
         public int trail_decay_rate = 2;
         public int fade_in_rate = 5;
     }

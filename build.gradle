@@ -162,8 +162,12 @@ dependencies {
     // http://www.gradle.org/docs/current/userguide/dependency_management.html
     
     // --- VS2 DEPENDENCIES ---
+    // Use compileOnly for compilation and runtimeOnly for testing in IDE
     compileOnly fg.deobf("thedarkcolour:kotlinforforge:4.11.0")
-    compileOnly fg.deobf("org.valkyrienskies:valkyrienskies-120-forge:2.4.0")
+    runtimeOnly fg.deobf("thedarkcolour:kotlinforforge:4.11.0")
+    
+    compileOnly fg.deobf("org.valkyrienskies:valkyrienskies-120-forge:2.4.6")
+    runtimeOnly fg.deobf("org.valkyrienskies:valkyrienskies-120-forge:2.4.6")
 
     // Core API: Using '+' allows Gradle to find the version matching the mod automatically
     compileOnly "org.valkyrienskies.core:api:+"

@@ -127,4 +127,42 @@ These settings control the advanced lighting engine features.
 
 ## Commands
 
-*   `/livelylighting reload` (or `/ll reload`): Reloads the `livelylighting.json` file and applies changes immediately without restarting the server.
+All commands can be run using either `/livelylighting` or the alias `/ll`.
+
+### General Commands
+
+*   `/ll reload`
+    *   **Description**: Reloads the `livelylighting.json` file and applies changes immediately without restarting the server.
+    *   **Permission**: OP (Level 2)
+
+*   `/ll purge`
+    *   **Description**: Removes all light blocks placed by the mod from the world. Useful if light blocks get stuck or linger.
+    *   **Permission**: OP (Level 2)
+
+*   `/ll config <option> <value>`
+    *   **Description**: Modifies a configuration option in-game. Automatically saves and reloads the config.
+    *   **Examples**:
+        *   `/ll config enable false`
+        *   `/ll config experimental.mode true`
+        *   `/ll config max_light_sources 100`
+    *   **Note**: Cannot modify list-based options like `custom_items` or `custom_entities`.
+    *   **Permission**: OP (Level 2)
+
+### Entity Management Commands
+
+*   `/ll toggle [entity]`
+    *   **Description**: Toggles dynamic lighting for a specific entity.
+    *   **Usage**:
+        *   `/ll toggle`: Toggles lighting for yourself (the player running the command). No OP required.
+        *   `/ll toggle @e[type=minecraft:zombie,limit=1]`: Toggles lighting for a specific target entity. Requires OP.
+    *   **Persistence**: This setting is saved per-entity and persists across server restarts.
+
+*   `/ll add <entity> <light_level>`
+    *   **Description**: Forces a specific entity to emit light at the specified level (1-15).
+    *   **Usage**: `/ll add @p 15` (Makes the nearest player glow with light level 15).
+    *   **Persistence**: This setting is saved per-entity and persists across server restarts.
+    *   **Permission**: OP (Level 2)
+
+*   `/ll remove <entity>`
+    *   **Description**: Removes the forced light level set by `/ll add`. The entity will revert to its default behavior (emitting light only if holding an item or configured in `custom_entities`).
+    *   **Permission**: OP (Level 2)
