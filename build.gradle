@@ -1,3 +1,9 @@
+buildscript {
+    dependencies {
+        classpath 'org.spongepowered:mixingradle:0.7-SNAPSHOT'
+    }
+}
+
 plugins {
     id 'eclipse'
     id 'idea'
@@ -178,6 +184,13 @@ dependencies {
     
     // Explicitly add typetools to resolve the missing dependency error
     implementation "net.jodah:typetools:0.6.3"
+}
+
+// Mixin configuration
+apply plugin: 'org.spongepowered.mixin'
+mixin {
+    add sourceSets.main, "${mod_id}.refmap.json"
+    config "${mod_id}.mixins.json"
 }
 
 // This block of code expands all declared replace properties in the specified resource targets.
