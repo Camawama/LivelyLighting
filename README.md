@@ -1,209 +1,99 @@
 # Lively Lighting - Configuration Guide
 
-Lively Lighting is a server-side dynamic lighting mod that is highly configurable via the `config/livelylighting.json` file. This file is generated when you first run the mod. You can edit it while the game is running and apply changes using the `/ll reload` command.
+Lively Lighting is a server-side dynamic lighting mod that is highly configurable. It uses a file-based configuration system located in `config/livelylighting/`.
 
-## General Settings
+## Configuration Structure
 
-### `enable`
-*   **Type**: Boolean (`true` / `false`)
-*   **Default**: `true`
-*   **Description**: Master toggle for the entire mod. If set to `false`, no dynamic lights will be calculated or placed.
+The configuration is split into three parts:
+1.  **`livelylighting.json`**: The main configuration file for global settings.
+2.  **`item_definitions/`**: A directory containing individual JSON files for each custom item.
+3.  **`entity_definitions/`**: A directory containing individual JSON files for each custom entity.
 
-### `max_light_sources`
-*   **Type**: Integer
-*   **Default**: `500`
-*   **Range**: `0` - `10000`
-*   **Description**: The maximum number of entities that can emit light simultaneously per dimension. This prevents server lag in scenarios with massive entity counts (e.g., mob farms). Players are prioritized over other entities.
-
-### `enchanted_items_glow`
-*   **Type**: Boolean (`true` / `false`)
-*   **Default**: `true`
-*   **Description**: If enabled, any enchanted item held by an entity will emit a faint glow (Light Level 6).
-
-### `fire_aspect_glow`
-*   **Type**: Boolean (`true` / `false`)
-*   **Default**: `true`
-*   **Description**: If enabled, items enchanted with Fire Aspect will emit a brighter glow (Light Level 9).
-
-### `enable_entity_lights`
-*   **Type**: Boolean (`true` / `false`)
-*   **Default**: `true`
-*   **Description**: Master toggle for entities emitting light based on their type (e.g., Blazes, Magma Cubes). If disabled, only held items will emit light.
-
-### `creeper_lighting`
-*   **Type**: Boolean (`true` / `false`)
-*   **Default**: `true`
-*   **Description**: If enabled, Creepers will emit light as they swell up before exploding. The light level increases with the swell progress.
-
-### `tnt_lighting`
-*   **Type**: Boolean (`true` / `false`)
-*   **Default**: `true`
-*   **Description**: If enabled, ignited TNT will flash light in sync with its visual blinking animation.
-
-### `burning_entity_lighting`
-*   **Type**: Boolean (`true` / `false`)
-*   **Default**: `true`
-*   **Description**: If enabled, entities that are on fire will emit light (Light Level 15).
-
-### `glowing_effect_lighting`
-*   **Type**: Boolean (`true` / `false`)
-*   **Default**: `true`
-*   **Description**: If enabled, entities with the Glowing potion effect will emit a faint light (Light Level 6).
-
-### `enable_particles`
-*   **Type**: Boolean (`true` / `false`)
-*   **Default**: `true`
-*   **Description**: Master toggle for particle effects spawned by dynamic light sources.
-
-### `enable_sounds`
-*   **Type**: Boolean (`true` / `false`)
-*   **Default**: `true`
-*   **Description**: Master toggle for sound effects played by dynamic light sources.
-
-### `vs_support`
-*   **Type**: Boolean (`true` / `false`)
-*   **Default**: `false`
-*   **Description**: Enables compatibility with Valkyrien Skies. This feature is experimental and may have issues. It allows light to propagate between the world and ships.
+This structure allows for easy management of custom light sources without cluttering a single file.
 
 ---
 
-## Experimental Settings
+## Main Config (`livelylighting.json`)
 
-These settings control the advanced lighting engine features.
+### General Settings
 
-### `experimental.mode`
-*   **Type**: Boolean (`true` / `false`)
-*   **Default**: `false`
-*   **Description**: Enables the advanced lighting engine.
-    *   **False (Standard Mode)**: Fast and stable. Places a single light block at the entity's position.
-    *   **True (Experimental Mode)**: Enables Smoothing and Cluster Growing features.
+*   **`enable`** (Boolean): Master toggle for the entire mod. Default: `true`.
+*   **`max_light_sources`** (Integer): Maximum number of dynamic lights allowed per dimension. Default: `500`.
+*   **`enchanted_items_glow`** (Boolean): If enabled, enchanted items emit light level 6. Default: `true`.
+*   **`fire_aspect_glow`** (Boolean): If enabled, items with Fire Aspect emit light level 9. Default: `true`.
+*   **`enable_entity_lights`** (Boolean): Master toggle for entity-based lighting (e.g., Blazes). Default: `true`.
+*   **`creeper_lighting`** (Boolean): If enabled, Creepers emit light while swelling. Default: `true`.
+*   **`tnt_lighting`** (Boolean): If enabled, ignited TNT flashes light. Default: `true`.
+*   **`burning_entity_lighting`** (Boolean): If enabled, entities on fire emit light level 15. Default: `true`.
+*   **`glowing_effect_lighting`** (Boolean): If enabled, entities with the Glowing effect emit light level 6. Default: `true`.
+*   **`enable_particles`** (Boolean): Master toggle for particle effects. Default: `true`.
+*   **`enable_sounds`** (Boolean): Master toggle for sound effects. Default: `true`.
+*   **`auto_detect_block_light`** (Boolean): If enabled, the mod automatically detects items that are blocks and emit light (e.g., modded lamps) and assigns them a dynamic light level. Default: `true`.
+*   **`auto_detect_blacklist`** (List<String>): A list of item IDs to exclude from auto-detection (e.g., `minecraft:light`).
+*   **`vs_support`** (Boolean): Experimental Valkyrien Skies support. Default: `false`.
 
-### `experimental.smoothing`
-*   **Type**: Boolean (`true` / `false`)
-*   **Default**: `true`
-*   **Description**: Requires `experimental.mode = true`.
-    *   Calculates precise light levels based on the entity's exact position (sub-block precision).
-    *   Enables "Trail Decay" (lights fade out slowly behind moving entities).
-    *   Enables "Fade In" (lights ramp up brightness when first activated).
-    *   **Note**: By default, this only applies to players.
+### Experimental Settings
 
-### `experimental.smoothing_all_entities`
-*   **Type**: Boolean (`true` / `false`)
-*   **Default**: `false`
-*   **Description**: Requires `experimental.smoothing = true`.
-    *   If enabled, smoothing logic will apply to ALL light-emitting entities, not just players. This can be performance-intensive.
-
-### `experimental.cluster_growing`
-*   **Type**: Boolean (`true` / `false`)
-*   **Default**: `true`
-*   **Description**: Requires `experimental.mode = true`.
-    *   If multiple light-emitting entities are close together, their light levels combine to create a larger radius of illumination.
-
-### `experimental.cluster_merge_distance`
-*   **Type**: Double
-*   **Default**: `4.0`
-*   **Description**: The distance (in blocks) within which entities are grouped into a single light lightCluster. Higher values mean entities that are further apart will still merge their light.
-
-### `experimental.max_influence_radius`
-*   **Type**: Integer
-*   **Default**: `8`
-*   **Range**: `1` - `32`
-*   **Description**: The maximum radius (in blocks) that a lightCluster of entities can illuminate. Prevents massive lag if hundreds of entities are stacked in one spot.
-
-### `experimental.trail_decay_rate`
-*   **Type**: Integer
-*   **Default**: `2`
-*   **Range**: `1` - `15`
-*   **Description**: Controls how fast the light trail fades out. Higher value = Faster fade out.
-
-### `experimental.fade_in_rate`
-*   **Type**: Integer
-*   **Default**: `5`
-*   **Range**: `1` - `15`
-*   **Description**: Controls how fast a new light source reaches full brightness. Higher value = Faster fade in.
+*   **`experimental.mode`** (Boolean): Enables the advanced lighting engine. Default: `false`.
+*   **`experimental.smoothing`** (Boolean): Enables smooth light movement and trails. Default: `true`.
+*   **`experimental.smoothing_all_entities`** (Boolean): Applies smoothing to all entities, not just players. Can be laggy. Default: `false`.
+*   **`experimental.cluster_growing`** (Boolean): Merges nearby light sources into a larger/brighter cluster. Default: `true`.
+*   **`experimental.cluster_merge_distance`** (Double): Distance to merge lights. Default: `6.0`.
+*   **`experimental.max_influence_radius`** (Integer): Max radius of a light cluster. Default: `3`.
+*   **`experimental.trail_decay_rate`** (Integer): Speed of light trail decay. Default: `2`.
+*   **`experimental.fade_in_rate`** (Integer): Speed of light fade-in. Default: `5`.
 
 ---
 
-## Custom Lists
+## Item Definitions (`item_definitions/*.json`)
 
-### `custom_items`
-*   **Format**: `"item_id|light_level|water_sensitive|particles|sounds"`
-*   **Description**: A list of items that emit light when held or thrown.
-    *   `item_id`: The registry name of the item (e.g., `minecraft:torch`). Supports regex if prefixed with `regex:`.
-    *   `light_level`: The light level (0-15).
-    *   `water_sensitive`: `true` if the item should stop emitting light in water/rain, `false` otherwise.
-    *   `particles`: A comma-separated list of particle IDs to spawn when the light is active (e.g., `minecraft:flame,minecraft:smoke`). 
-        *   Use `null` to disable particles.
-        *   Maximum of 3 particles per item.
-    *   `sounds`: A comma-separated list of sound IDs to play when the light is activated.
-        *   Format: `sound_id` or `sound_id:volume` or `sound_id:volume:pitch`.
-        *   Example: `minecraft:item.firecharge.use:1.0:1.2`.
-        *   Use `null` to disable sounds.
-        *   Maximum of 3 sounds per item.
-*   **Example**:
-    ```json
-    "minecraft:torch|14|true|minecraft:flame|minecraft:block.fire.ambient:1.0:1.0",
-    "minecraft:soul_torch|10|true|minecraft:soul_fire_flame|minecraft:block.soul_fire.ambient:0.8:1.0",
-    "minecraft:glowstone|15|false|minecraft:end_rod|null"
-    ```
+Each file in this directory defines a single item's dynamic lighting properties.
 
-### `custom_entities`
-*   **Format**: `"entity_id|light_level"`
-*   **Description**: A list of entity types that naturally emit light.
-    *   `entity_id`: The registry name of the entity (e.g., `minecraft:blaze`). Supports regex.
-    *   `light_level`: The light level (0-15).
-*   **Example**:
-    ```json
-    "minecraft:blaze|15",
-    "minecraft:spectral_arrow|8"
-    ```
+**Example (`minecraft_torch.json`):**
+```json
+{
+  "item_id": "minecraft:torch",
+  "light_level": 14,
+  "water_sensitive": true,
+  "particles": "minecraft:flame,minecraft:smoke",
+  "activate_sounds": "minecraft:block.fire.ambient:1.0:1.0",
+  "deactivate_sounds": "minecraft:block.fire.extinguish"
+}
+```
+
+*   **`item_id`**: The registry name of the item. Supports regex (e.g., `regex:.*torch`).
+*   **`light_level`**: The light level (0-15).
+*   **`water_sensitive`**: If `true`, the light extinguishes in water or rain.
+*   **`particles`**: Comma-separated list of particle IDs to spawn. Use `null` to disable. Max 3.
+*   **`activate_sounds`**: Comma-separated list of sounds to play when the item is equipped/activated. Max 3.
+    *   Format: `sound_id` or `sound_id:volume` or `sound_id:volume:pitch`.
+*   **`deactivate_sounds`**: Comma-separated list of sounds to play when the item is unequipped or extinguished. Max 3.
+
+---
+
+## Entity Definitions (`entity_definitions/*.json`)
+
+Each file in this directory defines a single entity type's dynamic lighting properties.
+
+**Example (`minecraft_blaze.json`):**
+```json
+{
+  "entity_id": "minecraft:blaze",
+  "light_level": 15
+}
+```
+
+*   **`entity_id`**: The registry name of the entity. Supports regex.
+*   **`light_level`**: The light level (0-15).
 
 ---
 
 ## Commands
 
-All commands can be run using either `/livelylighting` or the alias `/ll`.
-
-### General Commands
-
-*   `/ll reload`
-    *   **Description**: Reloads the `livelylighting.json` file and applies changes immediately without restarting the server.
-    *   **Permission**: OP (Level 2)
-
-*   `/ll purge`
-    *   **Description**: Removes all light blocks placed by the mod from the world. Useful if light blocks get stuck or linger.
-    *   **Permission**: OP (Level 2)
-
-*   `/ll config <option> <value>`
-    *   **Description**: Modifies a configuration option in-game. Automatically saves and reloads the config.
-    *   **Examples**:
-        *   `/ll config enable false`
-        *   `/ll config experimental.mode true`
-        *   `/ll config max_light_sources 100`
-    *   **Note**: Cannot modify list-based options like `custom_items` or `custom_entities`.
-    *   **Permission**: OP (Level 2)
-
-### Player Commands
-
-*   `/ll sound <on|off>`
-    *   **Description**: Toggles dynamic lighting sound effects for yourself. This setting is not persistent across server restarts.
-    *   **Permission**: None (All players)
-
-### Entity Management Commands
-
-*   `/ll toggle [entity]`
-    *   **Description**: Toggles dynamic lighting for a specific entity.
-    *   **Usage**:
-        *   `/ll toggle`: Toggles lighting for yourself (the player running the command). No OP required.
-        *   `/ll toggle @e[type=minecraft:zombie,limit=1]`: Toggles lighting for a specific target entity. Requires OP.
-    *   **Persistence**: This setting is saved per-entity and persists across server restarts.
-
-*   `/ll add <entity> <light_level>`
-    *   **Description**: Forces a specific entity to emit light at the specified level (1-15).
-    *   **Usage**: `/ll add @p 15` (Makes the nearest player glow with light level 15).
-    *   **Persistence**: This setting is saved per-entity and persists across server restarts.
-    *   **Permission**: OP (Level 2)
-
-*   `/ll remove <entity>`
-    *   **Description**: Removes the forced light level set by `/ll add`. The entity will revert to its default behavior (emitting light only if holding an item or configured in `custom_entities`).
-    *   **Permission**: OP (Level 2)
+*   `/ll reload`: Reloads all config files and definitions.
+*   `/ll purge`: Removes all light blocks from the world.
+*   `/ll toggle [entity]`: Toggles dynamic lighting for a specific entity.
+*   `/ll sound <on|off>`: Toggles dynamic lighting sounds for yourself (client-side preference).
+*   `/ll add <entity> <level>`: Forces an entity to emit light.
+*   `/ll remove <entity>`: Removes forced light from an entity.
+*   `/ll config <option> <value>`: Modifies main config options in-game.
