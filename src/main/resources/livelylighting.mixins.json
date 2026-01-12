@@ -4,7 +4,8 @@
   "package": "net.cama.livelylighting.mixin",
   "compatibilityLevel": "JAVA_17",
   "mixins": [
-    "LightBlockConstructor"
+    "LightBlockConstructor",
+    "MixinBlockBehaviour"
   ],
   "injectors": {
     "defaultRequire": 1

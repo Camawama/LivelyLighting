@@ -1,4 +1,4 @@
-package net.cama.livelylighting;
+package net.cama.livelylighting.data;
 
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;

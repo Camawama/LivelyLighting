@@ -40,6 +40,26 @@ Lively Lighting is a server-side dynamic lighting mod that is highly configurabl
 *   **Default**: `true`
 *   **Description**: If enabled, ignited TNT will flash light in sync with its visual blinking animation.
 
+### `burning_entity_lighting`
+*   **Type**: Boolean (`true` / `false`)
+*   **Default**: `true`
+*   **Description**: If enabled, entities that are on fire will emit light (Light Level 15).
+
+### `glowing_effect_lighting`
+*   **Type**: Boolean (`true` / `false`)
+*   **Default**: `true`
+*   **Description**: If enabled, entities with the Glowing potion effect will emit a faint light (Light Level 6).
+
+### `enable_particles`
+*   **Type**: Boolean (`true` / `false`)
+*   **Default**: `true`
+*   **Description**: Master toggle for particle effects spawned by dynamic light sources.
+
+### `enable_sounds`
+*   **Type**: Boolean (`true` / `false`)
+*   **Default**: `true`
+*   **Description**: Master toggle for sound effects played by dynamic light sources.
+
 ### `vs_support`
 *   **Type**: Boolean (`true` / `false`)
 *   **Default**: `false`
@@ -65,6 +85,13 @@ These settings control the advanced lighting engine features.
     *   Calculates precise light levels based on the entity's exact position (sub-block precision).
     *   Enables "Trail Decay" (lights fade out slowly behind moving entities).
     *   Enables "Fade In" (lights ramp up brightness when first activated).
+    *   **Note**: By default, this only applies to players.
+
+### `experimental.smoothing_all_entities`
+*   **Type**: Boolean (`true` / `false`)
+*   **Default**: `false`
+*   **Description**: Requires `experimental.smoothing = true`.
+    *   If enabled, smoothing logic will apply to ALL light-emitting entities, not just players. This can be performance-intensive.
 
 ### `experimental.cluster_growing`
 *   **Type**: Boolean (`true` / `false`)
@@ -75,13 +102,13 @@ These settings control the advanced lighting engine features.
 ### `experimental.cluster_merge_distance`
 *   **Type**: Double
 *   **Default**: `4.0`
-*   **Description**: The distance (in blocks) within which entities are grouped into a single light cluster. Higher values mean entities that are further apart will still merge their light.
+*   **Description**: The distance (in blocks) within which entities are grouped into a single light lightCluster. Higher values mean entities that are further apart will still merge their light.
 
 ### `experimental.max_influence_radius`
 *   **Type**: Integer
 *   **Default**: `8`
 *   **Range**: `1` - `32`
-*   **Description**: The maximum radius (in blocks) that a cluster of entities can illuminate. Prevents massive lag if hundreds of entities are stacked in one spot.
+*   **Description**: The maximum radius (in blocks) that a lightCluster of entities can illuminate. Prevents massive lag if hundreds of entities are stacked in one spot.
 
 ### `experimental.trail_decay_rate`
 *   **Type**: Integer
@@ -100,16 +127,24 @@ These settings control the advanced lighting engine features.
 ## Custom Lists
 
 ### `custom_items`
-*   **Format**: `"item_id|light_level|water_sensitive|type"`
+*   **Format**: `"item_id|light_level|water_sensitive|particles|sounds"`
 *   **Description**: A list of items that emit light when held or thrown.
     *   `item_id`: The registry name of the item (e.g., `minecraft:torch`). Supports regex if prefixed with `regex:`.
     *   `light_level`: The light level (0-15).
     *   `water_sensitive`: `true` if the item should stop emitting light in water/rain, `false` otherwise.
-    *   `type`: (Optional) The effect type. Can be `FLAME` or `GLOW`. Defaults to `GLOW` unless the ID contains "torch", "fire", etc.
+    *   `particles`: A comma-separated list of particle IDs to spawn when the light is active (e.g., `minecraft:flame,minecraft:smoke`). 
+        *   Use `null` to disable particles.
+        *   Maximum of 3 particles per item.
+    *   `sounds`: A comma-separated list of sound IDs to play when the light is activated.
+        *   Format: `sound_id` or `sound_id:volume` or `sound_id:volume:pitch`.
+        *   Example: `minecraft:item.firecharge.use:1.0:1.2`.
+        *   Use `null` to disable sounds.
+        *   Maximum of 3 sounds per item.
 *   **Example**:
     ```json
-    "minecraft:torch|14|true|FLAME",
-    "minecraft:glowstone|15|false|GLOW"
+    "minecraft:torch|14|true|minecraft:flame|minecraft:block.fire.ambient:1.0:1.0",
+    "minecraft:soul_torch|10|true|minecraft:soul_fire_flame|minecraft:block.soul_fire.ambient:0.8:1.0",
+    "minecraft:glowstone|15|false|minecraft:end_rod|null"
     ```
 
 ### `custom_entities`
@@ -147,6 +182,12 @@ All commands can be run using either `/livelylighting` or the alias `/ll`.
         *   `/ll config max_light_sources 100`
     *   **Note**: Cannot modify list-based options like `custom_items` or `custom_entities`.
     *   **Permission**: OP (Level 2)
+
+### Player Commands
+
+*   `/ll sound <on|off>`
+    *   **Description**: Toggles dynamic lighting sound effects for yourself. This setting is not persistent across server restarts.
+    *   **Permission**: None (All players)
 
 ### Entity Management Commands
 

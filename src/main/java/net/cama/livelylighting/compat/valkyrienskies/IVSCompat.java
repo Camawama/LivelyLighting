@@ -1,4 +1,4 @@
-package net.cama.livelylighting;
+package net.cama.livelylighting.compat.valkyrienskies;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;

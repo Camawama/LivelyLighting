@@ -13,7 +13,6 @@
     "minecraft:glow_ink_sac",
     "minecraft:prismarine_crystals",
     "minecraft:sea_pickle",
-    "minecraft:crying_obsidian",
     "minecraft:end_crystal",
     {"id": "#dynamiclights:mod_support/light_level/9", "required": false}
   ]

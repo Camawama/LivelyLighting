@@ -1,5 +1,6 @@
-package net.cama.livelylighting;
+package net.cama.livelylighting.data;
 
+import net.cama.livelylighting.LivelyLighting;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.tags.ItemTags;
 import net.minecraft.tags.TagKey;

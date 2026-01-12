@@ -1,8 +1,4 @@
 {
   "replace": false,
-  "values": [
-    "minecraft:tnt",
-    "minecraft:shulker_bullet",
-    "minecraft:allay"
-  ]
+  "values": []
 }
