@@ -51,13 +51,4 @@ public class LivelyLighting
     public void onRegisterCommands(RegisterCommandsEvent event) {
         LivelyLightingCommand.register(event.getDispatcher());
     }
-
-    @Mod.EventBusSubscriber(modid = MODID, bus = Mod.EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
-    public static class ClientModEvents
-    {
-        @SubscribeEvent
-        public static void onClientSetup(FMLClientSetupEvent event)
-        {
-        }
-    }
 }

@@ -16,8 +16,13 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(BlockBehaviour.class)
-public class MixinBlockBehaviour {
+public class LightBlockCollision {
 
+    /**
+     * This mixin prevents Minecarts from colliding with Light Blocks.
+     * Without this, Minecarts might get stuck or slowed down when passing through dynamic lights,
+     * as Light Blocks can sometimes have a collision shape that interacts poorly with entities.
+     */
     @Inject(method = "getCollisionShape", at = @At("HEAD"), cancellable = true)
     private void onGetCollisionShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context, CallbackInfoReturnable<VoxelShape> cir) {
 

@@ -61,7 +61,7 @@ Each file in this directory defines a single item's dynamic lighting properties.
 }
 ```
 
-*   **`item_id`**: The registry name of the item. Supports regex (e.g., `regex:.*torch`).
+*   **`item_id`**: The registry name of the item. Supports regex (e.g., `regex:.*torch`). **Note:** While powerful, complex regex patterns can impact performance. Prefer simple patterns or exact IDs when possible.
 *   **`light_level`**: The light level (0-15).
 *   **`water_sensitive`**: If `true`, the light extinguishes in water or rain.
 *   **`particles`**: Comma-separated list of particle IDs to spawn. Use `null` to disable. Max 3.
@@ -83,7 +83,7 @@ Each file in this directory defines a single entity type's dynamic lighting prop
 }
 ```
 
-*   **`entity_id`**: The registry name of the entity. Supports regex.
+*   **`entity_id`**: The registry name of the entity. Supports regex. **Note:** While powerful, complex regex patterns can impact performance. Prefer simple patterns or exact IDs when possible.
 *   **`light_level`**: The light level (0-15).
 
 ---

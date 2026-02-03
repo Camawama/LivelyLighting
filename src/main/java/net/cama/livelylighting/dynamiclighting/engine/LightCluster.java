@@ -35,9 +35,12 @@ public class LightCluster {
         }
         
         if (first) {
-            minX = maxX = ex;
-            minY = maxY = ey;
-            minZ = maxZ = ez;
+            minX = ex;
+            maxX = ex;
+            minY = ey;
+            maxY = ey;
+            minZ = ez;
+            maxZ = ez;
             first = false;
         } else {
             if (ex < minX) minX = ex;

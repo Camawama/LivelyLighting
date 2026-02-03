@@ -257,6 +257,11 @@ public class LightCalculator {
     }
 
     public static LightData getEntityLightLevel(Entity entity, ServerLevel level, LivelyConfig config) {
+        // Check if entity is suffocating inside a block
+        if (entity.isInWall()) {
+            return EMPTY_LIGHT_DATA;
+        }
+
         if (config.burning_entity_lighting && entity.isOnFire()) return new LightData(15, false, FLAME_PARTICLES, FLAME_SOUNDS, FLAME_EXTINGUISH_SOUNDS);
         
         if (config.glowing_effect_lighting && entity instanceof LivingEntity living && living.hasEffect(MobEffects.GLOWING)) {
@@ -362,7 +367,10 @@ public class LightCalculator {
                 boolean inWater = entity.isInWater() && entity.getFluidHeight(FluidTags.WATER) > entity.getEyeHeight() - 0.3;
                 boolean inRain = level.isRainingAt(entity.blockPosition()) && level.canSeeSky(entity.blockPosition());
                 
-                if (inWater || inRain) {
+                // Check if entity is suffocating inside a block
+                boolean inWall = entity.isInWall();
+                
+                if (inWater || inRain || inWall) {
                     return new LightData(0, false, data.particles, data.sounds, data.extinguishSounds);
                 }
             }

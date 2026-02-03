@@ -5,7 +5,10 @@
   "compatibilityLevel": "JAVA_17",
   "mixins": [
     "LightBlockConstructor",
-    "MixinBlockBehaviour"
+    "LightBlockCollision",
+    "LightBlockNoUpdate",
+    "LightBlockState",
+    "LightBlockLevel"
   ],
   "injectors": {
     "defaultRequire": 1
