@@ -43,6 +43,7 @@ public class LightManager {
     }
 
     public static void reloadConfig() {
+        LivelyConfig.load();
         LightCalculator.reloadConfig();
     }
     

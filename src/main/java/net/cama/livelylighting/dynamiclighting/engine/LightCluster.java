@@ -13,12 +13,13 @@ public class LightCluster {
     public List<ParticleType<?>> particles;
     public List<SoundData> sounds;
     public int maxLightLevel;
+    public boolean isPlayer;
     
     public double minX, minY, minZ;
     public double maxX, maxY, maxZ;
     public boolean first = true;
 
-    public void add(double ex, double ey, double ez, int light, boolean isNew, List<ParticleType<?>> p, List<SoundData> s) {
+    public void add(double ex, double ey, double ez, int light, boolean isNew, List<ParticleType<?>> p, List<SoundData> s, boolean player) {
         x += ex;
         y += ey;
         z += ez;
@@ -32,6 +33,10 @@ public class LightCluster {
         
         if (light > maxLightLevel) {
             maxLightLevel = light;
+        }
+        
+        if (player) {
+            isPlayer = true;
         }
         
         if (first) {

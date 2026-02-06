@@ -30,11 +30,15 @@ public class LightLogic {
     public static void runLightLogic(ServerLevel level, LivelyConfig config, LightGameState gameState, IVSCompat vsCompat, boolean useVs, Set<Integer> dirtyPlayers) {
         ResourceKey<Level> dimension = level.dimension();
         Map<BlockPos, Integer> worldCurrentLights = gameState.levelLights.computeIfAbsent(dimension, k -> new HashMap<>());
+        Set<BlockPos> worldPlayerLights = gameState.playerLights.computeIfAbsent(dimension, k -> new HashSet<>());
         Map<BlockPos, Integer> worldDesiredLights = new HashMap<>();
+        Set<BlockPos> worldDesiredPlayerLights = new HashSet<>();
         
         Map<Long, Map<BlockPos, Integer>> shipDesiredLights = new HashMap<>();
+        Map<Long, Set<BlockPos>> shipDesiredPlayerLights = new HashMap<>();
 
         boolean smoothing = config.experimental.smoothing;
+        boolean smoothingAllEntities = config.experimental.smoothing_all_entities;
         boolean clusterGrowing = config.experimental.cluster_growing;
         double mergeDistance = config.experimental.cluster_merge_distance;
         int maxRadius = config.experimental.max_influence_radius;
@@ -94,6 +98,7 @@ public class LightLogic {
             if (useVs) {
                 Set<Long> loadedShipIds = vsCompat.getLoadedShipIds(level);
                 gameState.shipLights.keySet().removeIf(id -> !loadedShipIds.contains(id));
+                gameState.shipPlayerLights.keySet().removeIf(id -> !loadedShipIds.contains(id));
             }
             
             // Cleanup sound cooldowns
@@ -101,7 +106,7 @@ public class LightLogic {
         }
 
         // 2. Calculate Desired Light Field
-        LightPropagator.calculateLightField(level, worldClusters, worldDesiredLights, smoothing, clusterGrowing, maxRadius);
+        LightPropagator.calculateLightField(level, worldClusters, worldDesiredLights, worldDesiredPlayerLights, smoothing, clusterGrowing, maxRadius);
         
         if (useVs) {
             Map<Long, Object> shipLookup = vsCompat.getShipLookup(level);
@@ -110,7 +115,8 @@ public class LightLogic {
                 Long shipId = entry.getKey();
                 Map<BlockPos, LightCluster> clusters = entry.getValue();
                 Map<BlockPos, Integer> desired = shipDesiredLights.computeIfAbsent(shipId, k -> new HashMap<>());
-                LightPropagator.calculateLightField(level, clusters, desired, smoothing, clusterGrowing, maxRadius);
+                Set<BlockPos> desiredPlayer = shipDesiredPlayerLights.computeIfAbsent(shipId, k -> new HashSet<>());
+                LightPropagator.calculateLightField(level, clusters, desired, desiredPlayer, smoothing, clusterGrowing, maxRadius);
             }
             
             for (LightCluster lightCluster : worldClusters.values()) {
@@ -121,13 +127,14 @@ public class LightLogic {
 
                     long shipId = vsCompat.getShipId(ship);
                     Map<BlockPos, Integer> desired = shipDesiredLights.computeIfAbsent(shipId, k -> new HashMap<>());
+                    Set<BlockPos> desiredPlayer = shipDesiredPlayerLights.computeIfAbsent(shipId, k -> new HashSet<>());
 
                     LightCluster shipLightCluster = new LightCluster();
-                    shipLightCluster.add(shipPos[0], shipPos[1], shipPos[2], (int) lightCluster.strength, lightCluster.isNewSource, lightCluster.particles, lightCluster.sounds);
+                    shipLightCluster.add(shipPos[0], shipPos[1], shipPos[2], (int) lightCluster.strength, lightCluster.isNewSource, lightCluster.particles, lightCluster.sounds, lightCluster.isPlayer);
                     shipLightCluster.maxLightLevel = lightCluster.maxLightLevel;
                     shipLightCluster.normalize();
 
-                    LightPropagator.calculateLightField(level, Map.of(BlockPos.containing(shipPos[0], shipPos[1], shipPos[2]), shipLightCluster), desired, smoothing, clusterGrowing, maxRadius);
+                    LightPropagator.calculateLightField(level, Map.of(BlockPos.containing(shipPos[0], shipPos[1], shipPos[2]), shipLightCluster), desired, desiredPlayer, smoothing, clusterGrowing, maxRadius);
                 }
             }
             
@@ -140,17 +147,17 @@ public class LightLogic {
                     double[] worldPos = vsCompat.transformShipToWorld(ship, lightCluster.x, lightCluster.y, lightCluster.z);
 
                     LightCluster worldLightCluster = new LightCluster();
-                    worldLightCluster.add(worldPos[0], worldPos[1], worldPos[2], (int) lightCluster.strength, lightCluster.isNewSource, lightCluster.particles, lightCluster.sounds);
+                    worldLightCluster.add(worldPos[0], worldPos[1], worldPos[2], (int) lightCluster.strength, lightCluster.isNewSource, lightCluster.particles, lightCluster.sounds, lightCluster.isPlayer);
                     worldLightCluster.maxLightLevel = lightCluster.maxLightLevel;
                     worldLightCluster.normalize();
 
-                    LightPropagator.calculateLightField(level, Map.of(BlockPos.containing(worldPos[0], worldPos[1], worldPos[2]), worldLightCluster), worldDesiredLights, smoothing, clusterGrowing, maxRadius);
+                    LightPropagator.calculateLightField(level, Map.of(BlockPos.containing(worldPos[0], worldPos[1], worldPos[2]), worldLightCluster), worldDesiredLights, worldDesiredPlayerLights, smoothing, clusterGrowing, maxRadius);
                 }
             }
         }
 
         // 3. Apply Changes
-        LightPropagator.applyChanges(level, worldCurrentLights, worldDesiredLights, smoothing, decayRate, fadeInRate, worldClusters, null, vsCompat);
+        LightPropagator.applyChanges(level, worldCurrentLights, worldPlayerLights, worldDesiredLights, worldDesiredPlayerLights, smoothing, smoothingAllEntities, decayRate, fadeInRate, worldClusters, null, vsCompat);
         
         if (useVs) {
             Map<Long, Object> shipLookup = vsCompat.getShipLookup(level);
@@ -161,11 +168,14 @@ public class LightLogic {
                 if (ship == null) continue;
                 
                 Map<BlockPos, Integer> desired = entry.getValue();
+                Set<BlockPos> desiredPlayer = shipDesiredPlayerLights.getOrDefault(shipId, new HashSet<>());
+                
                 Map<BlockPos, Integer> current = gameState.shipLights.computeIfAbsent(shipId, k -> new HashMap<>());
+                Set<BlockPos> currentPlayer = gameState.shipPlayerLights.computeIfAbsent(shipId, k -> new HashSet<>());
 
                 Map<BlockPos, LightCluster> relevantClusters = shipClusters.getOrDefault(shipId, new HashMap<>());
 
-                LightPropagator.applyChanges(level, current, desired, smoothing, decayRate, fadeInRate, relevantClusters, ship, vsCompat);
+                LightPropagator.applyChanges(level, current, currentPlayer, desired, desiredPlayer, smoothing, smoothingAllEntities, decayRate, fadeInRate, relevantClusters, ship, vsCompat);
             }
             
             Iterator<Map.Entry<Long, Map<BlockPos, Integer>>> shipIt = gameState.shipLights.entrySet().iterator();
@@ -174,18 +184,23 @@ public class LightLogic {
                 Long shipId = entry.getKey();
                 if (!shipDesiredLights.containsKey(shipId)) {
                     Map<BlockPos, Integer> current = entry.getValue();
+                    Set<BlockPos> currentPlayer = gameState.shipPlayerLights.getOrDefault(shipId, new HashSet<>());
+                    
                     Object ship = shipLookup.get(shipId);
                     if (ship == null) {
                         shipIt.remove();
+                        gameState.shipPlayerLights.remove(shipId);
                         continue;
                     }
                     
                     if (current.isEmpty()) {
                         shipIt.remove();
+                        gameState.shipPlayerLights.remove(shipId);
                     } else {
-                        LightPropagator.applyChanges(level, current, new HashMap<>(), smoothing, decayRate, fadeInRate, new HashMap<>(), ship, vsCompat);
+                        LightPropagator.applyChanges(level, current, currentPlayer, new HashMap<>(), new HashSet<>(), smoothing, smoothingAllEntities, decayRate, fadeInRate, new HashMap<>(), ship, vsCompat);
                         if (current.isEmpty()) {
                             shipIt.remove();
+                            gameState.shipPlayerLights.remove(shipId);
                         }
                     }
                 }
@@ -367,14 +382,14 @@ public class LightLogic {
                 
                 double mergeDistance = config.experimental.cluster_merge_distance;
                 
-                int gridX = (int) (shipPos[0] / mergeDistance);
-                int gridY = (int) (shipPos[1] / mergeDistance);
-                int gridZ = (int) (shipPos[2] / mergeDistance);
+                int gridX = (int) Math.floor(shipPos[0] / mergeDistance);
+                int gridY = (int) Math.floor(shipPos[1] / mergeDistance);
+                int gridZ = (int) Math.floor(shipPos[2] / mergeDistance);
                 BlockPos gridPos = new BlockPos(gridX, gridY, gridZ);
                 
                 shipClusters.computeIfAbsent(vsCompat.getShipId(ship), s -> new HashMap<>())
                             .computeIfAbsent(gridPos, k -> new LightCluster())
-                            .add(shipPos[0], shipPos[1], shipPos[2], lightLevel, isNew, particles, sounds);
+                            .add(shipPos[0], shipPos[1], shipPos[2], lightLevel, isNew, particles, sounds, entity instanceof Player);
             } else {
                 double lightX = entity.getX();
                 double lightY = entity.getEyeY();
@@ -400,12 +415,12 @@ public class LightLogic {
 
                 if (lightLevel > 0) {
                     double mergeDistance = config.experimental.cluster_merge_distance;
-                    int gridX = (int) (lightX / mergeDistance);
-                    int gridY = (int) (lightY / mergeDistance);
-                    int gridZ = (int) (lightZ / mergeDistance);
+                    int gridX = (int) Math.floor(lightX / mergeDistance);
+                    int gridY = (int) Math.floor(lightY / mergeDistance);
+                    int gridZ = (int) Math.floor(lightZ / mergeDistance);
                     BlockPos gridPos = new BlockPos(gridX, gridY, gridZ);
                     
-                    worldClusters.computeIfAbsent(gridPos, k -> new LightCluster()).add(lightX, lightY, lightZ, lightLevel, isNew, particles, sounds);
+                    worldClusters.computeIfAbsent(gridPos, k -> new LightCluster()).add(lightX, lightY, lightZ, lightLevel, isNew, particles, sounds, entity instanceof Player);
                 }
             }
         }

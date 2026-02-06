@@ -15,7 +15,7 @@ import java.util.*;
 
 public class LightPropagator {
 
-    public static void calculateLightField(ServerLevel level, Map<BlockPos, LightCluster> clusters, Map<BlockPos, Integer> desiredLights, boolean smoothing, boolean clusterGrowing, int maxRadius) {
+    public static void calculateLightField(ServerLevel level, Map<BlockPos, LightCluster> clusters, Map<BlockPos, Integer> desiredLights, Set<BlockPos> desiredPlayerLights, boolean smoothing, boolean clusterGrowing, int maxRadius) {
         for (LightCluster cluster : clusters.values()) {
             cluster.normalize();
 
@@ -26,7 +26,7 @@ public class LightPropagator {
 
             int radius = 0;
             if (strength > 15) {
-                radius = (int) Math.ceil(strength);
+                radius = (int) Math.ceil(strength - 15);
                 radius = Math.min(radius, maxRadius);
             } else if (smoothing) {
                 radius = 1;
@@ -40,6 +40,9 @@ public class LightPropagator {
                     int existing = desiredLights.getOrDefault(centerPos, 0);
                     if (levelAtTarget > existing) {
                         desiredLights.put(centerPos, levelAtTarget);
+                        if (cluster.isPlayer) {
+                            desiredPlayerLights.add(centerPos);
+                        }
                     }
                 }
                 continue;
@@ -82,12 +85,18 @@ public class LightPropagator {
                             int existing = desiredLights.getOrDefault(currentPos, 0);
                             if (levelAtTarget > existing) {
                                 desiredLights.put(currentPos, levelAtTarget);
+                                if (cluster.isPlayer) {
+                                    desiredPlayerLights.add(currentPos);
+                                }
                             }
                         }
                     } else {
                         int existing = desiredLights.getOrDefault(currentPos, 0);
                         if (levelAtTarget > existing) {
                             desiredLights.put(currentPos, levelAtTarget);
+                            if (cluster.isPlayer) {
+                                desiredPlayerLights.add(currentPos);
+                            }
                         }
                     }
 
@@ -107,7 +116,7 @@ public class LightPropagator {
         }
     }
     
-    public static void applyChanges(ServerLevel level, Map<BlockPos, Integer> currentLights, Map<BlockPos, Integer> desiredLights, boolean smoothing, int decayRate, int fadeInRate, Map<BlockPos, LightCluster> clusters, Object ship, IVSCompat vsCompat) {
+    public static void applyChanges(ServerLevel level, Map<BlockPos, Integer> currentLights, Set<BlockPos> currentPlayerLights, Map<BlockPos, Integer> desiredLights, Set<BlockPos> desiredPlayerLights, boolean smoothing, boolean smoothingAllEntities, int decayRate, int fadeInRate, Map<BlockPos, LightCluster> clusters, Object ship, IVSCompat vsCompat) {
         Iterator<Map.Entry<BlockPos, Integer>> it = currentLights.entrySet().iterator();
         while (it.hasNext()) {
             Map.Entry<BlockPos, Integer> entry = it.next();
@@ -119,10 +128,16 @@ public class LightPropagator {
                 int newLevel = currentLevel;
 
                 if (smoothing) {
-                    if (desiredLevel > currentLevel) {
-                        newLevel = Math.min(desiredLevel, currentLevel + fadeInRate);
-                    } else if (desiredLevel < currentLevel) {
-                        newLevel = Math.max(desiredLevel, currentLevel - decayRate);
+                    boolean shouldSmooth = smoothingAllEntities || currentPlayerLights.contains(pos) || desiredPlayerLights.contains(pos);
+
+                    if (shouldSmooth) {
+                        if (desiredLevel > currentLevel) {
+                            newLevel = Math.min(desiredLevel, currentLevel + fadeInRate);
+                        } else if (desiredLevel < currentLevel) {
+                            newLevel = Math.max(desiredLevel, currentLevel - decayRate);
+                        }
+                    } else {
+                        newLevel = desiredLevel;
                     }
                 } else {
                     newLevel = desiredLevel;
@@ -131,27 +146,51 @@ public class LightPropagator {
                 if (currentLevel != newLevel || shouldRePlace(level, pos, newLevel)) {
                     if (placeLight(level, pos, newLevel, true, ship, vsCompat)) {
                         entry.setValue(newLevel);
+                        if (desiredPlayerLights.contains(pos)) {
+                            currentPlayerLights.add(pos);
+                        } else {
+                            currentPlayerLights.remove(pos);
+                        }
                     } else {
                         it.remove();
+                        currentPlayerLights.remove(pos);
+                    }
+                } else {
+                    // Even if level didn't change, update player ownership
+                    if (desiredPlayerLights.contains(pos)) {
+                        currentPlayerLights.add(pos);
+                    } else {
+                        currentPlayerLights.remove(pos);
                     }
                 }
                 desiredLights.remove(pos);
             } else {
                 if (smoothing) {
-                    int newLevel = currentLevel - decayRate;
-                    if (newLevel > 0) {
-                        if (placeLight(level, pos, newLevel, true, ship, vsCompat)) {
-                            entry.setValue(newLevel);
+                    boolean shouldSmooth = smoothingAllEntities || currentPlayerLights.contains(pos);
+
+                    if (shouldSmooth) {
+                        int newLevel = currentLevel - decayRate;
+                        if (newLevel > 0) {
+                            if (placeLight(level, pos, newLevel, true, ship, vsCompat)) {
+                                entry.setValue(newLevel);
+                            } else {
+                                it.remove();
+                                currentPlayerLights.remove(pos);
+                            }
                         } else {
+                            removeLight(level, pos);
                             it.remove();
+                            currentPlayerLights.remove(pos);
                         }
                     } else {
                         removeLight(level, pos);
                         it.remove();
+                        currentPlayerLights.remove(pos);
                     }
                 } else {
                     removeLight(level, pos);
                     it.remove();
+                    currentPlayerLights.remove(pos);
                 }
             }
         }
@@ -162,22 +201,31 @@ public class LightPropagator {
             int newLevel = desiredLevel;
 
             boolean isNewSource = false;
-            for (LightCluster cluster : clusters.values()) {
-                if (cluster.isNewSource) {
-                    double distSq = pos.distToCenterSqr(cluster.x, cluster.y, cluster.z);
-                    if (distSq < 256) {
-                        isNewSource = true;
-                        break;
+            boolean isPlayer = desiredPlayerLights.contains(pos);
+            
+            if (smoothing) {
+                for (LightCluster cluster : clusters.values()) {
+                    if (cluster.isNewSource) {
+                        double distSq = pos.distToCenterSqr(cluster.x, cluster.y, cluster.z);
+                        if (distSq < 256) {
+                            isNewSource = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (isNewSource) {
+                    if (smoothingAllEntities || isPlayer) {
+                        newLevel = Math.min(desiredLevel, fadeInRate);
                     }
                 }
             }
 
-            if (smoothing && isNewSource) {
-                newLevel = Math.min(desiredLevel, fadeInRate);
-            }
-
             if (placeLight(level, pos, newLevel, true, ship, vsCompat)) {
                 currentLights.put(pos, newLevel);
+                if (isPlayer) {
+                    currentPlayerLights.add(pos);
+                }
             }
         }
     }

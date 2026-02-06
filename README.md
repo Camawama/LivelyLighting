@@ -34,7 +34,6 @@ This structure allows for easy management of custom light sources without clutte
 
 ### Experimental Settings
 
-*   **`experimental.mode`** (Boolean): Enables the advanced lighting engine. Default: `false`.
 *   **`experimental.smoothing`** (Boolean): Enables smooth light movement and trails. Default: `true`.
 *   **`experimental.smoothing_all_entities`** (Boolean): Applies smoothing to all entities, not just players. Can be laggy. Default: `false`.
 *   **`experimental.cluster_growing`** (Boolean): Merges nearby light sources into a larger/brighter cluster. Default: `true`.
