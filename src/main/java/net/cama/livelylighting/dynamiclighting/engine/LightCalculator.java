@@ -8,6 +8,7 @@ import net.cama.livelylighting.data.ModTags;
 import net.cama.livelylighting.dynamiclighting.entity.RegexEntityData;
 import net.cama.livelylighting.dynamiclighting.sound.SoundData;
 import net.cama.livelylighting.dynamiclighting.RegexLightData;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
@@ -258,7 +259,7 @@ public class LightCalculator {
 
     public static LightData getEntityLightLevel(Entity entity, ServerLevel level, LivelyConfig config) {
         // Check if entity is suffocating inside a block
-        if (entity.isInWall()) {
+        if (isSuffocating(entity, level)) {
             return EMPTY_LIGHT_DATA;
         }
 
@@ -358,6 +359,11 @@ public class LightCalculator {
         }
         
         if (data != null) {
+            // Check if entity is suffocating inside a block - GLOBAL CHECK for all items
+            if (isSuffocating(entity, level)) {
+                return new LightData(0, false, data.particles, data.sounds, data.extinguishSounds);
+            }
+
             if (data.level > 0 && data.waterSensitive) {
                 // Fix edge case: in water AND rain.
                 // If in water, extinguish.
@@ -367,10 +373,7 @@ public class LightCalculator {
                 boolean inWater = entity.isInWater() && entity.getFluidHeight(FluidTags.WATER) > entity.getEyeHeight() - 0.3;
                 boolean inRain = level.isRainingAt(entity.blockPosition()) && level.canSeeSky(entity.blockPosition());
                 
-                // Check if entity is suffocating inside a block
-                boolean inWall = entity.isInWall();
-                
-                if (inWater || inRain || inWall) {
+                if (inWater || inRain) {
                     return new LightData(0, false, data.particles, data.sounds, data.extinguishSounds);
                 }
             }
@@ -382,5 +385,13 @@ public class LightCalculator {
         }
 
         return EMPTY_LIGHT_DATA;
+    }
+    
+    private static boolean isSuffocating(Entity entity, ServerLevel level) {
+        if (entity.isInWall()) return true;
+        
+        BlockPos eyePos = BlockPos.containing(entity.getEyePosition());
+        BlockState state = level.getBlockState(eyePos);
+        return state.isSuffocating(level, eyePos);
     }
 }

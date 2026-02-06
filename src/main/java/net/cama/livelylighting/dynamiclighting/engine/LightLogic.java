@@ -95,6 +95,9 @@ public class LightLogic {
                 Set<Long> loadedShipIds = vsCompat.getLoadedShipIds(level);
                 gameState.shipLights.keySet().removeIf(id -> !loadedShipIds.contains(id));
             }
+            
+            // Cleanup sound cooldowns
+            gameState.lastSoundTime.keySet().removeIf(id -> level.getEntity(id) == null);
         }
 
         // 2. Calculate Desired Light Field
@@ -325,23 +328,32 @@ public class LightLogic {
                 }
             }
         } else if (isNew) {
-            if (!(entity instanceof Creeper) && !(entity instanceof PrimedTnt)) {
-                 if (config.enable_sounds && !LightManager.arePlayerSoundsDisabled(entity.getUUID())) {
-                     if (sounds != null) {
-                         for (SoundData sd : sounds) {
-                             level.playSound(null, handPos.x, handPos.y, handPos.z, sd.sound, SoundSource.NEUTRAL, sd.volume, sd.pitch);
+            if (!wasLit) { // Only play sounds/particles if we weren't lit before
+                if (!(entity instanceof Creeper) && !(entity instanceof PrimedTnt)) {
+                     long currentTime = level.getGameTime();
+                     long lastTime = gameState.lastSoundTime.getOrDefault(entity.getId(), 0L);
+                     
+                     if (currentTime - lastTime > 20) { // 10 ticks cooldown (0.5s)
+                         gameState.lastSoundTime.put(entity.getId(), currentTime);
+                         
+                         if (config.enable_sounds && !LightManager.arePlayerSoundsDisabled(entity.getUUID())) {
+                             if (sounds != null) {
+                                 for (SoundData sd : sounds) {
+                                     level.playSound(null, handPos.x, handPos.y, handPos.z, sd.sound, SoundSource.NEUTRAL, sd.volume, sd.pitch);
+                                 }
+                             }
                          }
-                     }
-                 }
-                 if (config.enable_particles) {
-                     if (particles != null) {
-                         for (ParticleType<?> particle : particles) {
-                             if (particle instanceof ParticleOptions) {
-                                 level.sendParticles((ParticleOptions) particle, handPos.x, handPos.y, handPos.z, 3, 0.05, 0.05, 0.05, 0.02);
+                         if (config.enable_particles) {
+                             if (particles != null) {
+                                 for (ParticleType<?> particle : particles) {
+                                     if (particle instanceof ParticleOptions) {
+                                         level.sendParticles((ParticleOptions) particle, handPos.x, handPos.y, handPos.z, 3, 0.05, 0.05, 0.05, 0.02);
+                                     }
+                                 }
                              }
                          }
                      }
-                 }
+                }
             }
         }
         
@@ -369,21 +381,32 @@ public class LightLogic {
                 double lightZ = entity.getZ();
                 
                 BlockPos eyePos = BlockPos.containing(lightX, lightY, lightZ);
-                BlockPos bestPos = LightPropagator.findValidLightPos(level, eyePos, entity.blockPosition());
+                
+                // Calculate dynamic radius based on light level
+                int searchRadius = Math.max(1, lightLevel / 2);
+                
+                BlockPos bestPos = LightPropagator.findValidLightPos(level, eyePos, entity.blockPosition(), searchRadius);
                 
                 if (bestPos != null) {
                     lightX = bestPos.getX() + 0.5;
                     lightY = bestPos.getY() + 0.5;
                     lightZ = bestPos.getZ() + 0.5;
+                    
+                    // Calculate distance penalty
+                    double dist = Math.sqrt(bestPos.distToCenterSqr(entity.getX(), entity.getEyeY(), entity.getZ()));
+                    int penalty = (int) Math.round(dist);
+                    lightLevel = Math.max(0, lightLevel - penalty);
                 }
 
-                double mergeDistance = config.experimental.cluster_merge_distance;
-                int gridX = (int) (lightX / mergeDistance);
-                int gridY = (int) (lightY / mergeDistance);
-                int gridZ = (int) (lightZ / mergeDistance);
-                BlockPos gridPos = new BlockPos(gridX, gridY, gridZ);
-                
-                worldClusters.computeIfAbsent(gridPos, k -> new LightCluster()).add(lightX, lightY, lightZ, lightLevel, isNew, particles, sounds);
+                if (lightLevel > 0) {
+                    double mergeDistance = config.experimental.cluster_merge_distance;
+                    int gridX = (int) (lightX / mergeDistance);
+                    int gridY = (int) (lightY / mergeDistance);
+                    int gridZ = (int) (lightZ / mergeDistance);
+                    BlockPos gridPos = new BlockPos(gridX, gridY, gridZ);
+                    
+                    worldClusters.computeIfAbsent(gridPos, k -> new LightCluster()).add(lightX, lightY, lightZ, lightLevel, isNew, particles, sounds);
+                }
             }
         }
     }

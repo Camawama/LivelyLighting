@@ -50,9 +50,9 @@ public class LivelyConfig {
     public Experimental experimental = new Experimental();
 
     public static class Experimental {
-        public boolean smoothing = true;
+        public boolean smoothing = false;
         public boolean smoothing_all_entities = false;
-        public boolean cluster_growing = true;
+        public boolean cluster_growing = false;
         public double cluster_merge_distance = 6.0;
         public int max_influence_radius = 3;
         public int trail_decay_rate = 2;

@@ -118,8 +118,12 @@ public class LightPropagator {
                 int desiredLevel = desiredLights.get(pos);
                 int newLevel = currentLevel;
 
-                if (smoothing && desiredLevel > currentLevel) {
-                    newLevel = Math.min(desiredLevel, currentLevel + fadeInRate);
+                if (smoothing) {
+                    if (desiredLevel > currentLevel) {
+                        newLevel = Math.min(desiredLevel, currentLevel + fadeInRate);
+                    } else if (desiredLevel < currentLevel) {
+                        newLevel = Math.max(desiredLevel, currentLevel - decayRate);
+                    }
                 } else {
                     newLevel = desiredLevel;
                 }
@@ -242,7 +246,7 @@ public class LightPropagator {
         }
     }
     
-    public static BlockPos findValidLightPos(Level level, BlockPos eyePos, BlockPos feetPos) {
+    public static BlockPos findValidLightPos(Level level, BlockPos eyePos, BlockPos feetPos, int radius) {
         if (isValidLightSpot(level, eyePos)) return eyePos;
         if (isValidLightSpot(level, eyePos.above())) return eyePos.above();
         if (isValidLightSpot(level, feetPos)) return feetPos;
@@ -250,9 +254,9 @@ public class LightPropagator {
         BlockPos bestPos = null;
         double bestDistSq = Double.MAX_VALUE;
 
-        for (int x = -1; x <= 1; x++) {
-            for (int y = -1; y <= 1; y++) {
-                for (int z = -1; z <= 1; z++) {
+        for (int x = -radius; x <= radius; x++) {
+            for (int y = -radius; y <= radius; y++) {
+                for (int z = -radius; z <= radius; z++) {
                     if (x == 0 && y == 0 && z == 0) continue;
 
                     BlockPos pos = eyePos.offset(x, y, z);

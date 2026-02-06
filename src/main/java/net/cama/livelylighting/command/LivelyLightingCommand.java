@@ -65,6 +65,7 @@ public class LivelyLightingCommand {
     }
 
     private static int reloadConfig(CommandContext<CommandSourceStack> context) {
+        LightManager.purgeAllLights(context.getSource().getServer()); // purge lights after reload
         LightManager.reloadConfig();
         context.getSource().sendSuccess(() -> Component.literal("LivelyLighting config reloaded!"), true);
         return 1;
@@ -172,6 +173,12 @@ public class LivelyLightingCommand {
             
             LivelyConfig.save();
             LightManager.reloadConfig();
+            
+            // Purge lights if the mod was disabled
+            if (option.equals("enable") && !config.enable) {
+                LightManager.purgeAllLights(context.getSource().getServer());
+            }
+
             context.getSource().sendSuccess(() -> Component.literal("Config option '" + option + "' set to " + value), true);
             return 1;
         } catch (NoSuchFieldException e) {

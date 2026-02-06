@@ -18,9 +18,13 @@ public class LightGameState {
     // Maps Dimension -> (EntityID -> (SourceID -> LightData))
     public final Map<ResourceKey<Level>, Map<Integer, Map<String, LightData>>> entityLitState = new HashMap<>();
     
+    // Maps EntityID -> Last Sound Time (Game Time)
+    public final Map<Integer, Long> lastSoundTime = new HashMap<>();
+    
     public void clear() {
         levelLights.clear();
         shipLights.clear();
         entityLitState.clear();
+        lastSoundTime.clear();
     }
 }
