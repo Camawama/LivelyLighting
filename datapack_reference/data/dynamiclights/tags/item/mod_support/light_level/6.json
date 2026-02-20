@@ -1,7 +1,0 @@
-{
-  "//comment": "Items listed here will emit light level 6 - Intended to get populated by mods",
-  "replace": false,
-  "values": [
-    {"id": "tfc:glow_arrow", "required": false}
-  ]
-}
