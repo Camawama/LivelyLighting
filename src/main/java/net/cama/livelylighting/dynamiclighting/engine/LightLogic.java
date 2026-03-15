@@ -60,8 +60,6 @@ public class LightLogic {
             sourceCount++;
         }
         
-        // Clear dirty players for this level is handled by the caller or we can ignore it here as we process everyone.
-
         if (sourceCount < maxSources) {
             int viewDistance = level.getServer().getPlayerList().getViewDistance() * 16;
             double viewDistanceSq = viewDistance * viewDistance;
@@ -103,6 +101,7 @@ public class LightLogic {
             
             // Cleanup sound cooldowns
             gameState.lastSoundTime.keySet().removeIf(id -> level.getEntity(id) == null);
+            gameState.lastSourcePos.keySet().removeIf(id -> level.getEntity(id) == null);
         }
 
         // 2. Calculate Desired Light Field
@@ -311,7 +310,7 @@ public class LightLogic {
         boolean wasLit = lastData != null && lastData.level > 0;
         boolean isLit = lightLevel > 0;
         
-        boolean isNew = isLit && (!wasLit || !lightData.equals(lastData));
+        boolean isNew = isLit && !wasLit;
         
         Vec3 handPos = entity.getEyePosition().add(entity.getViewVector(1.0f).scale(0.5)).add(entity.getViewVector(1.0f).cross(new Vec3(0, 1, 0)).scale(0.3));
         
@@ -400,17 +399,33 @@ public class LightLogic {
                 // Calculate dynamic radius based on light level
                 int searchRadius = Math.max(1, lightLevel / 2);
                 
-                BlockPos bestPos = LightPropagator.findValidLightPos(level, eyePos, entity.blockPosition(), searchRadius);
+                // Use cached position if available and valid
+                BlockPos lastPos = gameState.lastSourcePos.computeIfAbsent(entity.getId(), k -> new HashMap<>()).get(sourceId);
+                BlockPos bestPos = null;
+                
+                double spacingSq = config.experimental.light_source_spacing * config.experimental.light_source_spacing;
+                
+                if (lastPos != null && LightPropagator.isValidLightSpot(level, lastPos)) {
+                    double distSq = lastPos.distToCenterSqr(entity.getX(), entity.getEyeY(), entity.getZ());
+                    if (distSq < spacingSq) { // Within spacing distance
+                        bestPos = lastPos;
+                    }
+                }
+                
+                if (bestPos == null) {
+                    bestPos = LightPropagator.findValidLightPos(level, eyePos, entity.blockPosition(), searchRadius);
+                }
                 
                 if (bestPos != null) {
+                    gameState.lastSourcePos.get(entity.getId()).put(sourceId, bestPos);
+                    
                     lightX = bestPos.getX() + 0.5;
                     lightY = bestPos.getY() + 0.5;
                     lightZ = bestPos.getZ() + 0.5;
                     
-                    // Calculate distance penalty
-                    double dist = Math.sqrt(bestPos.distToCenterSqr(entity.getX(), entity.getEyeY(), entity.getZ()));
-                    int penalty = (int) Math.round(dist);
-                    lightLevel = Math.max(0, lightLevel - penalty);
+                    // Distance penalty removed
+                } else {
+                    gameState.lastSourcePos.get(entity.getId()).remove(sourceId);
                 }
 
                 if (lightLevel > 0) {
@@ -423,6 +438,8 @@ public class LightLogic {
                     worldClusters.computeIfAbsent(gridPos, k -> new LightCluster()).add(lightX, lightY, lightZ, lightLevel, isNew, particles, sounds, entity instanceof Player);
                 }
             }
+        } else {
+            gameState.lastSourcePos.computeIfAbsent(entity.getId(), k -> new HashMap<>()).remove(sourceId);
         }
     }
 

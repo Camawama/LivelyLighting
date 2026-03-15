@@ -27,6 +27,9 @@ public class LightGameState {
     
     // Maps EntityID -> Last Sound Time (Game Time)
     public final Map<Integer, Long> lastSoundTime = new HashMap<>();
+
+    // Maps EntityID -> (SourceID -> LastBlockPos)
+    public final Map<Integer, Map<String, BlockPos>> lastSourcePos = new HashMap<>();
     
     public void clear() {
         levelLights.clear();
@@ -35,5 +38,6 @@ public class LightGameState {
         shipPlayerLights.clear();
         entityLitState.clear();
         lastSoundTime.clear();
+        lastSourcePos.clear();
     }
 }

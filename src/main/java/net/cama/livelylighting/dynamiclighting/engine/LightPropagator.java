@@ -117,117 +117,129 @@ public class LightPropagator {
     }
     
     public static void applyChanges(ServerLevel level, Map<BlockPos, Integer> currentLights, Set<BlockPos> currentPlayerLights, Map<BlockPos, Integer> desiredLights, Set<BlockPos> desiredPlayerLights, boolean smoothing, boolean smoothingAllEntities, int decayRate, int fadeInRate, Map<BlockPos, LightCluster> clusters, Object ship, IVSCompat vsCompat) {
-        Iterator<Map.Entry<BlockPos, Integer>> it = currentLights.entrySet().iterator();
-        while (it.hasNext()) {
-            Map.Entry<BlockPos, Integer> entry = it.next();
-            BlockPos pos = entry.getKey();
-            int currentLevel = entry.getValue();
+        Map<BlockPos, Integer> nextCurrentLights = new HashMap<>();
+        Set<BlockPos> nextCurrentPlayerLights = new HashSet<>();
 
-            if (desiredLights.containsKey(pos)) {
-                int desiredLevel = desiredLights.get(pos);
-                int newLevel = currentLevel;
+        Set<BlockPos> allPositions = new HashSet<>(currentLights.keySet());
+        allPositions.addAll(desiredLights.keySet());
 
-                if (smoothing) {
-                    boolean shouldSmooth = smoothingAllEntities || currentPlayerLights.contains(pos) || desiredPlayerLights.contains(pos);
+        Map<BlockPos, Integer> calculatedLevels = new HashMap<>();
 
-                    if (shouldSmooth) {
+        // First, calculate the target light level for every block.
+        for (BlockPos pos : allPositions) {
+            int currentLevel = currentLights.getOrDefault(pos, 0);
+            int desiredLevel = desiredLights.getOrDefault(pos, 0);
+            boolean wasCurrent = currentLevel > 0;
+            boolean isDesired = desiredLevel > 0;
+            boolean wasPlayerLight = currentPlayerLights.contains(pos);
+            boolean isDesiredPlayerLight = desiredPlayerLights.contains(pos);
+
+            int newLevel = 0;
+
+            if (isDesired) {
+                // Case 1 & 2: Light is desired. It's either a new light or an update.
+                if (!wasCurrent) {
+                    // Case 1: New light (fade in)
+                    boolean isNewSource = false;
+                    if (smoothing) {
+                        for (LightCluster cluster : clusters.values()) {
+                            if (cluster.isNewSource) {
+                                double distSq = pos.distToCenterSqr(cluster.x, cluster.y, cluster.z);
+                                if (distSq < 256) { isNewSource = true; break; }
+                            }
+                        }
+                    }
+
+                    // A new block at a totally new position from an existing light source shouldn't fade in
+                    if (smoothing && isNewSource && (smoothingAllEntities || isDesiredPlayerLight)) {
+                        newLevel = Math.min(desiredLevel, fadeInRate); // fade in from zero if it's a completely new activation
+                    } else {
+                        // If it's a trail, it starts at full desired brightness
+                        newLevel = desiredLevel; // full bright if it's just moving
+                    }
+                } else {
+                    // Case 2: Existing light (update)
+                    if (smoothing && (smoothingAllEntities || wasPlayerLight || isDesiredPlayerLight)) {
                         if (desiredLevel > currentLevel) {
                             newLevel = Math.min(desiredLevel, currentLevel + fadeInRate);
-                        } else if (desiredLevel < currentLevel) {
+                        } else { // desiredLevel <= currentLevel
                             newLevel = Math.max(desiredLevel, currentLevel - decayRate);
                         }
                     } else {
                         newLevel = desiredLevel;
                     }
-                } else {
-                    newLevel = desiredLevel;
                 }
-
-                if (currentLevel != newLevel || shouldRePlace(level, pos, newLevel)) {
-                    if (placeLight(level, pos, newLevel, true, ship, vsCompat)) {
-                        entry.setValue(newLevel);
-                        if (desiredPlayerLights.contains(pos)) {
-                            currentPlayerLights.add(pos);
-                        } else {
-                            currentPlayerLights.remove(pos);
-                        }
-                    } else {
-                        it.remove();
-                        currentPlayerLights.remove(pos);
-                    }
-                } else {
-                    // Even if level didn't change, update player ownership
-                    if (desiredPlayerLights.contains(pos)) {
-                        currentPlayerLights.add(pos);
-                    } else {
-                        currentPlayerLights.remove(pos);
-                    }
-                }
-                desiredLights.remove(pos);
-            } else {
-                if (smoothing) {
-                    boolean shouldSmooth = smoothingAllEntities || currentPlayerLights.contains(pos);
-
-                    if (shouldSmooth) {
-                        int newLevel = currentLevel - decayRate;
-                        if (newLevel > 0) {
-                            if (placeLight(level, pos, newLevel, true, ship, vsCompat)) {
-                                entry.setValue(newLevel);
-                            } else {
-                                it.remove();
-                                currentPlayerLights.remove(pos);
-                            }
-                        } else {
-                            removeLight(level, pos);
-                            it.remove();
-                            currentPlayerLights.remove(pos);
-                        }
-                    } else {
-                        removeLight(level, pos);
-                        it.remove();
-                        currentPlayerLights.remove(pos);
-                    }
-                } else {
-                    removeLight(level, pos);
-                    it.remove();
-                    currentPlayerLights.remove(pos);
+            } else if (wasCurrent) {
+                // Case 3: Light is not desired, but was current. Fade it out.
+                if (smoothing && (smoothingAllEntities || wasPlayerLight)) {
+                    newLevel = currentLevel - decayRate;
                 }
             }
-        }
-
-        for (Map.Entry<BlockPos, Integer> entry : desiredLights.entrySet()) {
-            BlockPos pos = entry.getKey();
-            int desiredLevel = entry.getValue();
-            int newLevel = desiredLevel;
-
-            boolean isNewSource = false;
-            boolean isPlayer = desiredPlayerLights.contains(pos);
             
-            if (smoothing) {
-                for (LightCluster cluster : clusters.values()) {
-                    if (cluster.isNewSource) {
-                        double distSq = pos.distToCenterSqr(cluster.x, cluster.y, cluster.z);
-                        if (distSq < 256) {
-                            isNewSource = true;
-                            break;
-                        }
-                    }
-                }
+            calculatedLevels.put(pos, newLevel);
+        }
 
-                if (isNewSource) {
-                    if (smoothingAllEntities || isPlayer) {
-                        newLevel = Math.min(desiredLevel, fadeInRate);
-                    }
+        // Pass 1: Apply newly placed blocks and increases first.
+        // This ensures the new light is physically in the world BEFORE we fade anything out,
+        // avoiding a flicker where the engine processes the removal before the new source.
+        for (BlockPos pos : allPositions) {
+            int newLevel = calculatedLevels.get(pos);
+            int currentLevel = currentLights.getOrDefault(pos, 0);
+            boolean isDesired = desiredLights.containsKey(pos);
+            boolean wasPlayerLight = currentPlayerLights.contains(pos);
+            boolean isDesiredPlayerLight = desiredPlayerLights.contains(pos);
+            boolean trackAsPlayerLight = isDesiredPlayerLight || (wasPlayerLight && !isDesired);
+            
+            if (newLevel >= currentLevel && newLevel > 0) {
+                boolean placeSuccess;
+                if (newLevel > currentLevel || shouldRePlace(level, pos, newLevel)) {
+                    placeSuccess = placeLight(level, pos, newLevel, true, ship, vsCompat);
+                } else {
+                    placeSuccess = true; // Already correctly placed
                 }
-            }
-
-            if (placeLight(level, pos, newLevel, true, ship, vsCompat)) {
-                currentLights.put(pos, newLevel);
-                if (isPlayer) {
-                    currentPlayerLights.add(pos);
+                
+                if (placeSuccess) {
+                    nextCurrentLights.put(pos, newLevel);
+                    if (trackAsPlayerLight) {
+                        nextCurrentPlayerLights.add(pos);
+                    }
+                } else {
+                    // Failed to place. Set calculated level to 0 so Pass 2 will clean it up if needed.
+                    calculatedLevels.put(pos, 0);
                 }
             }
         }
+
+        // Pass 2: Apply decreases and removals.
+        for (BlockPos pos : allPositions) {
+            int newLevel = calculatedLevels.get(pos);
+            int currentLevel = currentLights.getOrDefault(pos, 0);
+            boolean isDesired = desiredLights.containsKey(pos);
+            boolean wasPlayerLight = currentPlayerLights.contains(pos);
+            boolean isDesiredPlayerLight = desiredPlayerLights.contains(pos);
+            boolean trackAsPlayerLight = isDesiredPlayerLight || (wasPlayerLight && !isDesired);
+            
+            if (newLevel < currentLevel) {
+                if (newLevel > 0) {
+                    if (placeLight(level, pos, newLevel, true, ship, vsCompat)) {
+                        nextCurrentLights.put(pos, newLevel);
+                        if (trackAsPlayerLight) {
+                            nextCurrentPlayerLights.add(pos);
+                        }
+                    }
+                } else { // newLevel <= 0
+                    if (currentLevel > 0) {
+                        removeLight(level, pos);
+                    }
+                }
+            }
+        }
+
+        // Atomically update the game state maps
+        currentLights.clear();
+        currentLights.putAll(nextCurrentLights);
+        currentPlayerLights.clear();
+        currentPlayerLights.addAll(nextCurrentPlayerLights);
     }
     
     public static boolean shouldRePlace(ServerLevel level, BlockPos pos, int targetLevel) {

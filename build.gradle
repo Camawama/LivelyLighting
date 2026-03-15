@@ -1,7 +1,6 @@
 buildscript {
     repositories {
         mavenCentral()
-        // Sponge repo is needed for mixingradle snapshots sometimes
         maven { url = 'https://repo.spongepowered.org/repository/maven-public/' }
     }
     dependencies {
@@ -39,7 +38,6 @@ minecraft {
             property 'forge.logging.markers', 'REGISTRIES'
             property 'forge.logging.console.level', 'debug'
 
-            // Dev-only helpers (OK to keep)
             property 'mixin.env.remapRefMap', 'true'
             property 'mixin.env.refMapRemappingFile', "${projectDir}/build/createSrgToMcp/output.srg"
 
@@ -73,17 +71,10 @@ minecraft {
 sourceSets.main.resources { srcDir 'src/generated/resources' }
 
 repositories {
-    // ForgeGradle adds Forge + Mojang automatically, but keep Central for normal deps
     mavenCentral()
-
-    // ✅ Required for Sponge Mixin + processor
     maven { url = 'https://repo.spongepowered.org/repository/maven-public/' }
-
-    // Valkyrien Skies & Kotlin Repos
     maven { url = 'https://maven.valkyrienskies.org' }
     maven { url = 'https://thedarkcolour.github.io/KotlinForForge/' }
-
-    // Modrinth Maven
     maven {
         name = "Modrinth"
         url = "https://api.modrinth.com/maven"
@@ -93,7 +84,6 @@ repositories {
 dependencies {
     minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
 
-    // ✅ REQUIRED: generates livelylighting.refmap.json so the built jar works outside dev
     compileOnly 'org.spongepowered:mixin:0.8.5'
     annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
 
@@ -110,20 +100,12 @@ dependencies {
     compileOnly "org.valkyrienskies.core:util:+"
 
     implementation("org.joml:joml:1.10.5")
-
-    // Explicitly add typetools to resolve the missing dependency error
     implementation "net.jodah:typetools:0.6.3"
-
-    // Borderless Window
-    // runtimeOnly fg.deobf("curse.maven:cubes-without-borders-975120:5855464")
 }
 
-// Mixin configuration
 apply plugin: 'org.spongepowered.mixin'
 mixin {
-    // Must match: "refmap": "livelylighting.refmap.json" in livelylighting.mixins.json
     add sourceSets.main, "livelylighting.refmap.json"
-    // Must match your actual json file name
     config "livelylighting.mixins.json"
 }
 
@@ -152,8 +134,6 @@ tasks.named('jar', Jar).configure {
                 'Implementation-Version'  : project.jar.archiveVersion,
                 'Implementation-Vendor'   : mod_authors,
                 'Implementation-Timestamp': new Date().format("yyyy-MM-dd'T'HH:mm:ssZ"),
-
-                // ✅ Ensures mixin config is loaded in production
                 'MixinConfigs'            : 'livelylighting.mixins.json'
         ])
     }

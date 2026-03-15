@@ -41,6 +41,7 @@ This structure allows for easy management of custom light sources without clutte
 *   **`experimental.max_influence_radius`** (Integer): Max radius of a light cluster. Default: `3`.
 *   **`experimental.trail_decay_rate`** (Integer): Speed of light trail decay. Default: `2`.
 *   **`experimental.fade_in_rate`** (Integer): Speed of light fade-in. Default: `5`.
+*   **`experimental.light_source_spacing`** (Double): Minimum distance between light updates (0.0 = every block).
 
 ---
 

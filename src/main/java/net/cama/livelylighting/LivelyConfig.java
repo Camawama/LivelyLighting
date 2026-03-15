@@ -57,6 +57,7 @@ public class LivelyConfig {
         public int max_influence_radius = 3;
         public int trail_decay_rate = 2;
         public int fade_in_rate = 5;
+        public double light_source_spacing = 0.0; // Minimum distance between light updates (0.0 = every block)
     }
 
     // Default lists used for generation
