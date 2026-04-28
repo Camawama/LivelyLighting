@@ -15,6 +15,7 @@ import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.decoration.ItemFrame;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.item.PrimedTnt;
 import net.minecraft.world.entity.monster.Creeper;
@@ -445,7 +446,7 @@ public class LightLogic {
 
     private static boolean shouldCheckEntity(Entity entity, LivelyConfig config) {
         // Check forced entities first (handled in processEntity, but we need to return true here to reach it)
-        if (entity instanceof LivingEntity || entity instanceof ItemEntity || entity instanceof Creeper || entity instanceof PrimedTnt) {
+        if (entity instanceof LivingEntity || entity instanceof ItemEntity || entity instanceof Creeper || entity instanceof PrimedTnt || entity instanceof ItemFrame) {
              // Always allow checking these, processEntity will check the saved data
         } else {
              // For other entities, check if they are forced
@@ -458,7 +459,7 @@ public class LightLogic {
         if (config.enable_entity_lights) {
             return true;
         }
-        return entity instanceof LivingEntity || entity instanceof ItemEntity || entity instanceof Creeper || entity instanceof PrimedTnt
+        return entity instanceof LivingEntity || entity instanceof ItemEntity || entity instanceof Creeper || entity instanceof PrimedTnt || entity instanceof ItemFrame
                || entity.getType().is(ModTags.Entities.LIGHT_LEVEL_15)
                || entity.getType().is(ModTags.Entities.LIGHT_LEVEL_12)
                || entity.getType().is(ModTags.Entities.LIGHT_LEVEL_9)

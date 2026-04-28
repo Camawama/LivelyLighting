@@ -20,6 +20,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.decoration.ItemFrame;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.item.PrimedTnt;
 import net.minecraft.world.entity.monster.Creeper;
@@ -254,6 +255,13 @@ public class LightCalculator {
             return getItemLightLevel(itemEntity.getItem(), entity, level, config);
         }
         
+        if (entity instanceof ItemFrame itemFrame) {
+            LightData frameLight = getItemLightLevel(itemFrame.getItem(), entity, level, config);
+            LightData best = entityLight;
+            if (frameLight.level > best.level) best = frameLight;
+            return best;
+        }
+        
         return entityLight;
     }
 
@@ -388,6 +396,7 @@ public class LightCalculator {
     }
     
     private static boolean isSuffocating(Entity entity, ServerLevel level) {
+        if (entity instanceof ItemFrame) return false;
         if (entity.isInWall()) return true;
         
         BlockPos eyePos = BlockPos.containing(entity.getEyePosition());
