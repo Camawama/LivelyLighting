@@ -94,6 +94,7 @@ dependencies {
     annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
 
     runtimeOnly fg.deobf("curse.maven:cubes-without-borders-975120:5855464")
+    runtimeOnly fg.deobf("curse.maven:embeddium-908741:5681725")
     //runtimeOnly fg.deobf("curse.maven:true-darkness-forge-updated-fork-970641:5080314")
     //runtimeOnly fg.deobf("curse.maven:colorful-lighting-sodium-compat-1373023:7997994")
 

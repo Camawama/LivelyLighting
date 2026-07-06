@@ -116,7 +116,7 @@ public class LightPropagator {
         }
     }
     
-    public static void applyChanges(ServerLevel level, Map<BlockPos, Integer> currentLights, Set<BlockPos> currentPlayerLights, Map<BlockPos, Integer> desiredLights, Set<BlockPos> desiredPlayerLights, boolean smoothing, boolean smoothingAllEntities, int decayRate, int fadeInRate, Map<BlockPos, LightCluster> clusters, Object ship, IVSCompat vsCompat) {
+    public static void applyChanges(ServerLevel level, Map<BlockPos, Integer> currentLights, Set<BlockPos> currentPlayerLights, Map<BlockPos, Integer> desiredLights, Set<BlockPos> desiredPlayerLights, boolean smoothing, boolean smoothingAllEntities, int decayRate, int fadeInRate, Object ship, IVSCompat vsCompat) {
         Map<BlockPos, Integer> nextCurrentLights = new HashMap<>();
         Set<BlockPos> nextCurrentPlayerLights = new HashSet<>();
 
@@ -124,8 +124,11 @@ public class LightPropagator {
         allPositions.addAll(desiredLights.keySet());
 
         Map<BlockPos, Integer> calculatedLevels = new HashMap<>();
+        List<BlockPos> fadingOut = new ArrayList<>();
 
-        // First, calculate the target light level for every block.
+        // First, calculate the target light level for every position with a live source.
+        // Positions whose source is gone (Case 3) are resolved afterwards, so their
+        // removal test can run against the levels actually being placed this tick.
         for (BlockPos pos : allPositions) {
             int currentLevel = currentLights.getOrDefault(pos, 0);
             int desiredLevel = desiredLights.getOrDefault(pos, 0);
@@ -134,48 +137,59 @@ public class LightPropagator {
             boolean wasPlayerLight = currentPlayerLights.contains(pos);
             boolean isDesiredPlayerLight = desiredPlayerLights.contains(pos);
 
-            int newLevel = 0;
+            if (!isDesired) {
+                if (wasCurrent) {
+                    fadingOut.add(pos);
+                }
+                continue;
+            }
 
-            if (isDesired) {
-                // Case 1 & 2: Light is desired. It's either a new light or an update.
-                if (!wasCurrent) {
-                    // Case 1: New light (fade in)
-                    boolean isNewSource = false;
-                    if (smoothing) {
-                        for (LightCluster cluster : clusters.values()) {
-                            if (cluster.isNewSource) {
-                                double distSq = pos.distToCenterSqr(cluster.x, cluster.y, cluster.z);
-                                if (distSq < 256) { isNewSource = true; break; }
-                            }
-                        }
-                    }
-
-                    // A new block at a totally new position from an existing light source shouldn't fade in
-                    if (smoothing && isNewSource && (smoothingAllEntities || isDesiredPlayerLight)) {
-                        newLevel = Math.min(desiredLevel, fadeInRate); // fade in from zero if it's a completely new activation
-                    } else {
-                        // If it's a trail, it starts at full desired brightness
-                        newLevel = desiredLevel; // full bright if it's just moving
+            int newLevel;
+            if (!wasCurrent) {
+                // Case 1: New light. Fade in from the light this position already
+                // receives, never from zero: block light combines by max, so fading
+                // in from zero would visibly dim the area before brightening it.
+                // For a moving source the new anchor already receives desired-1 from
+                // the old block, making the handoff a single +1 step; for a fresh
+                // ignition the ambient is 0 and it fades in from darkness as before.
+                if (smoothing && (smoothingAllEntities || isDesiredPlayerLight)) {
+                    int ambient = shadowLevel(pos, currentLights);
+                    newLevel = Math.min(desiredLevel, ambient + fadeInRate);
+                } else {
+                    newLevel = desiredLevel;
+                }
+            } else {
+                // Case 2: Existing light (update)
+                if (smoothing && (smoothingAllEntities || wasPlayerLight || isDesiredPlayerLight)) {
+                    if (desiredLevel > currentLevel) {
+                        newLevel = Math.min(desiredLevel, currentLevel + fadeInRate);
+                    } else { // desiredLevel <= currentLevel
+                        newLevel = Math.max(desiredLevel, currentLevel - decayRate);
                     }
                 } else {
-                    // Case 2: Existing light (update)
-                    if (smoothing && (smoothingAllEntities || wasPlayerLight || isDesiredPlayerLight)) {
-                        if (desiredLevel > currentLevel) {
-                            newLevel = Math.min(desiredLevel, currentLevel + fadeInRate);
-                        } else { // desiredLevel <= currentLevel
-                            newLevel = Math.max(desiredLevel, currentLevel - decayRate);
-                        }
-                    } else {
-                        newLevel = desiredLevel;
-                    }
-                }
-            } else if (wasCurrent) {
-                // Case 3: Light is not desired, but was current. Fade it out.
-                if (smoothing && (smoothingAllEntities || wasPlayerLight)) {
-                    newLevel = currentLevel - decayRate;
+                    newLevel = desiredLevel;
                 }
             }
-            
+            calculatedLevels.put(pos, newLevel);
+        }
+
+        // Case 3: Light is not desired, but was current. Fade it out.
+        // Snapshot the live placements so trail blocks don't shadow each other.
+        Map<BlockPos, Integer> placedThisTick = new HashMap<>(calculatedLevels);
+        for (BlockPos pos : fadingOut) {
+            int currentLevel = currentLights.get(pos);
+            boolean wasPlayerLight = currentPlayerLights.contains(pos);
+
+            int newLevel = 0;
+            if (smoothing && (smoothingAllEntities || wasPlayerLight)) {
+                // Invisible handoff: once this block is no brighter than what the
+                // live sources placed this tick propagate to this position, the
+                // vanilla light engine fills in the same brightness the moment it's
+                // gone — remove it now instead of leaving a trail behind a moving source.
+                int shadow = shadowLevel(pos, placedThisTick);
+                int faded = currentLevel - decayRate;
+                newLevel = faded <= shadow ? 0 : faded;
+            }
             calculatedLevels.put(pos, newLevel);
         }
 
@@ -242,6 +256,25 @@ public class LightPropagator {
         currentPlayerLights.addAll(nextCurrentPlayerLights);
     }
     
+    // The block light level a position already receives from the desired light
+    // sources, assuming unobstructed vanilla propagation (level - manhattan distance).
+    // Trail positions were just walked through by the carrier, so the path is
+    // almost always clear and this estimate holds.
+    private static int shadowLevel(BlockPos pos, Map<BlockPos, Integer> desiredLights) {
+        int best = 0;
+        for (Map.Entry<BlockPos, Integer> entry : desiredLights.entrySet()) {
+            BlockPos src = entry.getKey();
+            int manhattan = Math.abs(src.getX() - pos.getX())
+                          + Math.abs(src.getY() - pos.getY())
+                          + Math.abs(src.getZ() - pos.getZ());
+            int contribution = entry.getValue() - manhattan;
+            if (contribution > best) {
+                best = contribution;
+            }
+        }
+        return best;
+    }
+
     public static boolean shouldRePlace(ServerLevel level, BlockPos pos, int targetLevel) {
         if (!level.isLoaded(pos)) return false;
         BlockState state = level.getBlockState(pos);

@@ -157,7 +157,7 @@ public class LightLogic {
         }
 
         // 3. Apply Changes
-        LightPropagator.applyChanges(level, worldCurrentLights, worldPlayerLights, worldDesiredLights, worldDesiredPlayerLights, smoothing, smoothingAllEntities, decayRate, fadeInRate, worldClusters, null, vsCompat);
+        LightPropagator.applyChanges(level, worldCurrentLights, worldPlayerLights, worldDesiredLights, worldDesiredPlayerLights, smoothing, smoothingAllEntities, decayRate, fadeInRate, null, vsCompat);
         
         if (useVs) {
             Map<Long, Object> shipLookup = vsCompat.getShipLookup(level);
@@ -173,9 +173,7 @@ public class LightLogic {
                 Map<BlockPos, Integer> current = gameState.shipLights.computeIfAbsent(shipId, k -> new HashMap<>());
                 Set<BlockPos> currentPlayer = gameState.shipPlayerLights.computeIfAbsent(shipId, k -> new HashSet<>());
 
-                Map<BlockPos, LightCluster> relevantClusters = shipClusters.getOrDefault(shipId, new HashMap<>());
-
-                LightPropagator.applyChanges(level, current, currentPlayer, desired, desiredPlayer, smoothing, smoothingAllEntities, decayRate, fadeInRate, relevantClusters, ship, vsCompat);
+                LightPropagator.applyChanges(level, current, currentPlayer, desired, desiredPlayer, smoothing, smoothingAllEntities, decayRate, fadeInRate, ship, vsCompat);
             }
             
             Iterator<Map.Entry<Long, Map<BlockPos, Integer>>> shipIt = gameState.shipLights.entrySet().iterator();
@@ -197,7 +195,7 @@ public class LightLogic {
                         shipIt.remove();
                         gameState.shipPlayerLights.remove(shipId);
                     } else {
-                        LightPropagator.applyChanges(level, current, currentPlayer, new HashMap<>(), new HashSet<>(), smoothing, smoothingAllEntities, decayRate, fadeInRate, new HashMap<>(), ship, vsCompat);
+                        LightPropagator.applyChanges(level, current, currentPlayer, new HashMap<>(), new HashSet<>(), smoothing, smoothingAllEntities, decayRate, fadeInRate, ship, vsCompat);
                         if (current.isEmpty()) {
                             shipIt.remove();
                             gameState.shipPlayerLights.remove(shipId);
@@ -424,7 +422,12 @@ public class LightLogic {
                     lightY = bestPos.getY() + 0.5;
                     lightZ = bestPos.getZ() + 0.5;
                     
-                    // Distance penalty removed
+                    // Dead-band of one block: the entity's eye is normally within ~1 block
+                    // of the anchor, and penalizing that distance made the level flap
+                    // between N and N-1 as the eye crossed the boundary while moving.
+                    // Only dim anchors that are genuinely far away (e.g. the in-wall case).
+                    double dist = Math.sqrt(bestPos.distToCenterSqr(entity.getX(), entity.getEyeY(), entity.getZ()));
+                    lightLevel = Math.max(0, lightLevel - (int) Math.floor(Math.max(0, dist - 1.0)));
                 } else {
                     gameState.lastSourcePos.get(entity.getId()).remove(sourceId);
                 }
