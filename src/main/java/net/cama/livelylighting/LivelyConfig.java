@@ -58,6 +58,12 @@ public class LivelyConfig {
     public Experimental experimental = new Experimental();
 
     public static class Experimental {
+        // Sub-block interpolation: treats the source as a continuous point light and
+        // gives every nearby block ceil(level - manhattan distance to the entity),
+        // so light levels crossfade exactly with movement (straddling two blocks
+        // lights both). Smoothest possible with vanilla light blocks; more block
+        // updates than normal smoothing. Requires smoothing to be enabled.
+        public boolean ultra_smoothing = false;
         public boolean cluster_growing = false;
         public double cluster_merge_distance = 6.0;
         public int max_influence_radius = 3;

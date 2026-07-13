@@ -50,6 +50,10 @@ public class LightLogic {
         int maxSources = config.max_light_sources;
 
         Map<BlockPos, LightCluster> worldClusters = new HashMap<>();
+        // Ultra smoothing sources, keyed by exact block position: each entry is one
+        // block of the sub-block interpolation and must never be grid-merged or
+        // position-averaged like regular clusters.
+        Map<BlockPos, LightCluster> worldUltraClusters = new HashMap<>();
         Map<Long, Map<BlockPos, LightCluster>> shipClusters = new HashMap<>();
         int sourceCount = 0;
 
@@ -59,7 +63,7 @@ public class LightLogic {
             if (sourceCount >= maxSources) break;
             if (player.isSpectator()) continue;
             
-            processEntity(player, level, worldClusters, shipClusters, processedIds, config, useVs, gameState, vsCompat);
+            processEntity(player, level, worldClusters, worldUltraClusters, shipClusters, processedIds, config, useVs, gameState, vsCompat);
             sourceCount++;
         }
         
@@ -85,7 +89,7 @@ public class LightLogic {
                     if (entity instanceof Player) continue;
                     if (!shouldCheckEntity(entity, config)) continue;
 
-                    if (processEntity(entity, level, worldClusters, shipClusters, processedIds, config, useVs, gameState, vsCompat)) {
+                    if (processEntity(entity, level, worldClusters, worldUltraClusters, shipClusters, processedIds, config, useVs, gameState, vsCompat)) {
                         sourceCount++;
                     }
                 }
@@ -131,6 +135,7 @@ public class LightLogic {
 
         // 2. Calculate Desired Light Field
         LightPropagator.calculateLightField(level, worldClusters, worldDesiredLights, worldDesiredPlayerLights, worldDesiredCarry, smoothing, clusterGrowing, maxRadius);
+        LightPropagator.calculateLightField(level, worldUltraClusters, worldDesiredLights, worldDesiredPlayerLights, worldDesiredCarry, smoothing, clusterGrowing, maxRadius);
 
         if (useVs) {
             Map<Long, Object> shipLookup = vsCompat.getShipLookup(level);
@@ -144,7 +149,9 @@ public class LightLogic {
                 LightPropagator.calculateLightField(level, clusters, desired, desiredPlayer, carry, smoothing, clusterGrowing, maxRadius);
             }
             
-            for (LightCluster lightCluster : worldClusters.values()) {
+            List<LightCluster> allWorldClusters = new ArrayList<>(worldClusters.values());
+            allWorldClusters.addAll(worldUltraClusters.values());
+            for (LightCluster lightCluster : allWorldClusters) {
                 AABB aabb = new AABB(lightCluster.x - maxRadius, lightCluster.y - maxRadius, lightCluster.z - maxRadius,
                                      lightCluster.x + maxRadius, lightCluster.y + maxRadius, lightCluster.z + maxRadius);
                 for (Object ship : vsCompat.getShipsIntersecting(level, aabb)) {
@@ -233,7 +240,7 @@ public class LightLogic {
         }
     }
 
-    private static boolean processEntity(Entity entity, ServerLevel level, Map<BlockPos, LightCluster> worldClusters, Map<Long, Map<BlockPos, LightCluster>> shipClusters, Set<Integer> processedIds, LivelyConfig config, boolean useVs, LightGameState gameState, IVSCompat vsCompat) {
+    private static boolean processEntity(Entity entity, ServerLevel level, Map<BlockPos, LightCluster> worldClusters, Map<BlockPos, LightCluster> worldUltraClusters, Map<Long, Map<BlockPos, LightCluster>> shipClusters, Set<Integer> processedIds, LivelyConfig config, boolean useVs, LightGameState gameState, IVSCompat vsCompat) {
         if (!processedIds.add(entity.getId())) return false;
 
         LivelyLightingData data = LivelyLightingData.get(level);
@@ -262,7 +269,7 @@ public class LightLogic {
         Integer forcedLevel = data.getForcedLevel(entity.getUUID());
         if (forcedLevel != null) {
             LightData lightData = new LightData(forcedLevel, false, Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
-            processLightData(entity, level, worldClusters, shipClusters, config, useVs, lightData, "forced", gameState, vsCompat, velocity);
+            processLightData(entity, level, worldClusters, worldUltraClusters, shipClusters, config, useVs, lightData, "forced", gameState, vsCompat, velocity);
             return true;
         }
 
@@ -272,19 +279,19 @@ public class LightLogic {
             
             // Main Hand
             LightData main = LightCalculator.getItemLightLevel(living.getMainHandItem(), entity, level, config);
-            processLightData(entity, level, worldClusters, shipClusters, config, useVs, main, "mainhand", gameState, vsCompat, velocity);
+            processLightData(entity, level, worldClusters, worldUltraClusters, shipClusters, config, useVs, main, "mainhand", gameState, vsCompat, velocity);
             if (main.level > 0) foundLight = true;
 
             // Off Hand
             LightData off = LightCalculator.getItemLightLevel(living.getOffhandItem(), entity, level, config);
-            processLightData(entity, level, worldClusters, shipClusters, config, useVs, off, "offhand", gameState, vsCompat, velocity);
+            processLightData(entity, level, worldClusters, worldUltraClusters, shipClusters, config, useVs, off, "offhand", gameState, vsCompat, velocity);
             if (off.level > 0) foundLight = true;
 
             // Armor
             for (net.minecraft.world.entity.EquipmentSlot slot : net.minecraft.world.entity.EquipmentSlot.values()) {
                 if (slot.getType() == net.minecraft.world.entity.EquipmentSlot.Type.ARMOR) {
                     LightData armor = LightCalculator.getItemLightLevel(living.getItemBySlot(slot), entity, level, config);
-                    processLightData(entity, level, worldClusters, shipClusters, config, useVs, armor, slot.getName(), gameState, vsCompat, velocity);
+                    processLightData(entity, level, worldClusters, worldUltraClusters, shipClusters, config, useVs, armor, slot.getName(), gameState, vsCompat, velocity);
                     if (armor.level > 0) foundLight = true;
                 }
             }
@@ -299,13 +306,13 @@ public class LightLogic {
                 } else {
                     blockLight = new LightData(0, false, Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
                 }
-                processLightData(entity, level, worldClusters, shipClusters, config, useVs, blockLight, "carried_block", gameState, vsCompat, velocity);
+                processLightData(entity, level, worldClusters, worldUltraClusters, shipClusters, config, useVs, blockLight, "carried_block", gameState, vsCompat, velocity);
                 if (blockLight.level > 0) foundLight = true;
             }
 
             // Check other sources (fire, glow effect, etc)
             LightData entityLight = LightCalculator.getEntityLightLevel(entity, level, config);
-            processLightData(entity, level, worldClusters, shipClusters, config, useVs, entityLight, "body", gameState, vsCompat, velocity);
+            processLightData(entity, level, worldClusters, worldUltraClusters, shipClusters, config, useVs, entityLight, "body", gameState, vsCompat, velocity);
             if (entityLight.level > 0) foundLight = true;
             
             return foundLight;
@@ -315,7 +322,7 @@ public class LightLogic {
             LightData lastData = getEntityLitState(level, entity.getId(), "combined", gameState);
             
             if (lightData.level > 0 || (lastData != null && lastData.level > 0)) {
-                processLightData(entity, level, worldClusters, shipClusters, config, useVs, lightData, "combined", gameState, vsCompat, velocity);
+                processLightData(entity, level, worldClusters, worldUltraClusters, shipClusters, config, useVs, lightData, "combined", gameState, vsCompat, velocity);
                 return lightData.level > 0;
             }
             return false;
@@ -345,7 +352,7 @@ public class LightLogic {
         }
     }
     
-    private static void processLightData(Entity entity, ServerLevel level, Map<BlockPos, LightCluster> worldClusters, Map<Long, Map<BlockPos, LightCluster>> shipClusters, LivelyConfig config, boolean useVs, LightData lightData, String sourceId, LightGameState gameState, IVSCompat vsCompat, Vec3 velocity) {
+    private static void processLightData(Entity entity, ServerLevel level, Map<BlockPos, LightCluster> worldClusters, Map<BlockPos, LightCluster> worldUltraClusters, Map<Long, Map<BlockPos, LightCluster>> shipClusters, LivelyConfig config, boolean useVs, LightData lightData, String sourceId, LightGameState gameState, IVSCompat vsCompat, Vec3 velocity) {
         LivelyLightingData worldData = LivelyLightingData.get(level);
         int lightLevel = lightData.level;
         List<ParticleType<?>> particles = lightData.particles;
@@ -468,6 +475,19 @@ public class LightLogic {
                 shipClusters.computeIfAbsent(vsCompat.getShipId(ship), s -> new HashMap<>())
                             .computeIfAbsent(gridPos, k -> new LightCluster())
                             .add(shipPos[0], shipPos[1], shipPos[2], lightLevel, entity instanceof Player, 0);
+            } else if (smoothingActive && config.experimental.ultra_smoothing) {
+                // Ultra smoothing: no anchor block at all — the entity is treated as
+                // a continuous point light and every nearby block gets its exact
+                // interpolated level. Predictive lead, anchor caching and the
+                // distance penalty are all bypassed; the interpolation IS the anchor.
+                addUltraSources(level, entity, lightLevel, worldUltraClusters);
+                Map<Integer, Map<String, BlockPos>> dimSourcePos = gameState.lastSourcePos.get(level.dimension());
+                if (dimSourcePos != null) {
+                    Map<String, BlockPos> cache = dimSourcePos.get(entity.getId());
+                    if (cache != null) {
+                        cache.remove(sourceId);
+                    }
+                }
             } else {
                 double lightX = entity.getX();
                 double lightY = entity.getEyeY();
@@ -563,6 +583,73 @@ public class LightLogic {
                     cache.remove(sourceId);
                 }
             }
+        }
+    }
+
+    /**
+     * Ultra smoothing: sub-block light interpolation. The source is treated as a
+     * continuous point light at the entity's eye; every block within manhattan
+     * distance 2 of the eye block gets level ceil(L - continuousManhattan(eye,
+     * blockCenter)). Standing centered on a block yields exactly one full-level
+     * block (neighbors are redundant and trimmed); straddling a boundary puts the
+     * full level on both straddled blocks, and every surrounding cell crosses its
+     * ±1 boundary exactly when the entity's position dictates — the smoothest
+     * field integer light can express, including vertical motion. ceil (rather
+     * than round) guarantees crossfades never dim: a block only drops a level in
+     * the same tick its successor gains one.
+     *
+     * Candidates already receiving their exact level from a brighter kept block
+     * via open-air propagation are trimmed — the vanilla engine produces the same
+     * value there, so placing them would only add block-update churn.
+     */
+    private static void addUltraSources(ServerLevel level, Entity entity, int lightLevel, Map<BlockPos, LightCluster> ultraClusters) {
+        double eyeX = entity.getX();
+        double eyeY = entity.getEyeY();
+        double eyeZ = entity.getZ();
+        BlockPos basePos = BlockPos.containing(eyeX, eyeY, eyeZ);
+        boolean isPlayer = entity instanceof Player;
+
+        record Candidate(BlockPos pos, int level) {}
+        List<Candidate> candidates = new ArrayList<>();
+
+        for (int dx = -2; dx <= 2; dx++) {
+            for (int dy = -2; dy <= 2; dy++) {
+                for (int dz = -2; dz <= 2; dz++) {
+                    if (Math.abs(dx) + Math.abs(dy) + Math.abs(dz) > 2) continue;
+
+                    BlockPos pos = basePos.offset(dx, dy, dz);
+                    double dist = Math.abs(eyeX - (pos.getX() + 0.5))
+                                + Math.abs(eyeY - (pos.getY() + 0.5))
+                                + Math.abs(eyeZ - (pos.getZ() + 0.5));
+                    int posLevel = Math.min(15, (int) Math.ceil(lightLevel - dist));
+                    if (posLevel <= 0) continue;
+                    if (!LightPropagator.isValidLightSpot(level, pos)) continue;
+
+                    candidates.add(new Candidate(pos, posLevel));
+                }
+            }
+        }
+
+        // Brightest first so the trim check only ever tests against kept blocks
+        // that could actually cover the current one.
+        candidates.sort((a, b) -> b.level - a.level);
+        List<Candidate> kept = new ArrayList<>();
+
+        outer:
+        for (Candidate candidate : candidates) {
+            for (Candidate keeper : kept) {
+                int manhattan = Math.abs(keeper.pos.getX() - candidate.pos.getX())
+                              + Math.abs(keeper.pos.getY() - candidate.pos.getY())
+                              + Math.abs(keeper.pos.getZ() - candidate.pos.getZ());
+                if (keeper.level - manhattan >= candidate.level) continue outer;
+            }
+            kept.add(candidate);
+
+            // Keyed by exact block position; carry equals the level so applyChanges
+            // grants it immediately — the interpolation replaces fade-in/out here.
+            ultraClusters.computeIfAbsent(candidate.pos, k -> new LightCluster())
+                         .add(candidate.pos.getX() + 0.5, candidate.pos.getY() + 0.5, candidate.pos.getZ() + 0.5,
+                              candidate.level, isPlayer, candidate.level);
         }
     }
 
