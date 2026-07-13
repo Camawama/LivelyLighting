@@ -1,8 +1,10 @@
 package net.cama.livelylighting.compat.valkyrienskies;
 
+import net.cama.livelylighting.data.LivelyLightingData;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
@@ -76,6 +78,14 @@ public class VSCompat implements IVSCompat {
         AABBic aabb = ship.getShipAABB();
         if (aabb == null) return Collections.emptyMap();
 
+        // Light blocks Lively Lighting itself placed in the shipyard (held-light
+        // projections) must never register as ship lamps — they'd echo the held
+        // light back into the world. The placed-lights records are the exact
+        // "placed by the mod vs. placed by a player" distinction: a mod block is
+        // recorded for as long as it exists, while player-placed light blocks
+        // (e.g. wildcard emitters) are absent and still count as real emitters.
+        Set<BlockPos> modPlacedLights = LivelyLightingData.get(level).getPlacedLights(level.dimension());
+
         Map<BlockPos, Integer> emitters = new HashMap<>();
 
         // Walk the shipyard AABB chunk section by chunk section: ships are mostly
@@ -115,6 +125,9 @@ public class VSCompat implements IVSCompat {
                                 if (cursor.getX() < aabb.minX() || cursor.getX() > aabb.maxX()
                                         || cursor.getY() < aabb.minY() || cursor.getY() > aabb.maxY()
                                         || cursor.getZ() < aabb.minZ() || cursor.getZ() > aabb.maxZ()) {
+                                    continue;
+                                }
+                                if (state.is(Blocks.LIGHT) && modPlacedLights.contains(cursor)) {
                                     continue;
                                 }
                                 emitters.put(cursor.immutable(), emission);

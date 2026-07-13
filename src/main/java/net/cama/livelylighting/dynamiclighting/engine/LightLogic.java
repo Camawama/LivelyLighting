@@ -104,9 +104,11 @@ public class LightLogic {
         // world coordinates and were handled above like any other entity — nothing
         // is ever placed inside the shipyard.
         if (useVs) {
-            // The mod's own shipyard-projected light blocks emit light too and would
-            // otherwise be scanned as ship lamps, echoing a held torch back into the
-            // world for up to a rescan cycle after the holder leaves.
+            // The mod's own shipyard-projected light blocks emit light too and must
+            // never count as ship lamps, or a held torch echoes back into the world.
+            // The scan itself already excludes recorded blocks (the authoritative
+            // filter — a stale cache entry could otherwise outlive its record after
+            // the anchor fades); this projection-time check is defense in depth.
             Set<BlockPos> ownPlacedLights = LivelyLightingData.get(level).getPlacedLights(dimension);
             Set<Long> scannedShips = new HashSet<>();
             for (Player player : level.players()) {
