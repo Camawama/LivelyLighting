@@ -45,6 +45,10 @@ public class LightLogic {
     private static final java.util.function.Predicate<net.minecraft.world.level.block.state.BlockState> LUMINOUS =
             state -> state.getLightEmission() > 0;
 
+    // A ship lamp's world-space position this tick, collected in pass 1 of the VS
+    // section and fed to every OTHER ship's projection for ship-to-ship lighting.
+    private record ShipWorldEmitter(long shipId, double x, double y, double z, int emission) {}
+
     public static void runLightLogic(ServerLevel level, LivelyConfig config, LightGameState gameState, IVSCompat vsCompat, boolean useVs) {
         ResourceKey<Level> dimension = level.dimension();
         Map<BlockPos, Integer> worldCurrentLights = gameState.levelLights.computeIfAbsent(dimension, k -> new HashMap<>());
@@ -121,49 +125,60 @@ public class LightLogic {
             // filter — a stale cache entry could otherwise outlive its record after
             // the anchor fades); this projection-time check is defense in depth.
             Set<BlockPos> ownPlacedLights = LivelyLightingData.get(level).getPlacedLights(dimension);
-            Set<Long> scannedShips = new HashSet<>();
+
+            // Pass 1: gather every ship near a player once, refresh its emitter
+            // cache, project its lamps into the world, and remember each lamp's
+            // world position this tick for pass 2's ship-to-ship lighting.
+            Map<Long, Object> nearbyShips = new HashMap<>();
             for (Player player : level.players()) {
                 AABB searchBox = player.getBoundingBox().inflate(viewDistance);
                 for (Object ship : vsCompat.getShipsIntersecting(level, searchBox)) {
-                    long shipId = vsCompat.getShipId(ship);
-                    if (!scannedShips.add(shipId)) continue;
-
-                    Map<BlockPos, Integer> emitters = gameState.shipEmitterCache.get(shipId);
-                    long lastScan = gameState.shipEmitterScanTime.getOrDefault(shipId, Long.MIN_VALUE);
-                    if (emitters == null || level.getGameTime() - lastScan >= SHIP_EMITTER_RESCAN_INTERVAL) {
-                        emitters = vsCompat.getShipLightEmitters(level, ship);
-                        gameState.shipEmitterCache.put(shipId, emitters);
-                        gameState.shipEmitterScanTime.put(shipId, level.getGameTime());
-                    }
-
-                    for (Map.Entry<BlockPos, Integer> emitter : emitters.entrySet()) {
-                        if (sourceCount >= maxSources) break;
-                        sourceCount++;
-
-                        BlockPos shipPos = emitter.getKey();
-                        if (ownPlacedLights.contains(shipPos)) continue;
-                        int emission = emitter.getValue();
-                        double[] worldPos = vsCompat.transformShipToWorld(ship,
-                                shipPos.getX() + 0.5, shipPos.getY() + 0.5, shipPos.getZ() + 0.5);
-
-                        int gridX = (int) Math.floor(worldPos[0] / mergeDistance);
-                        int gridY = (int) Math.floor(worldPos[1] / mergeDistance);
-                        int gridZ = (int) Math.floor(worldPos[2] / mergeDistance);
-                        BlockPos gridPos = new BlockPos(gridX, gridY, gridZ);
-
-                        // Carry equals the emission so an already-lit lamp never
-                        // re-runs the ignition fade as the ship moves.
-                        worldClusters.computeIfAbsent(gridPos, k -> new LightCluster())
-                                     .add(worldPos[0], worldPos[1], worldPos[2], emission, false, emission);
-                    }
-
-                    // World → ship: genuine world light blocks near the ship light
-                    // its hull as it sails past. World lamps are static, so their
-                    // positions are cached per chunk — shared across ships and
-                    // unaffected by ship movement — and only re-projected through
-                    // the ship's current transform each tick.
-                    projectWorldEmittersOntoShip(level, ship, gameState, ownPlacedLights, worldUltraClusters, vsCompat);
+                    nearbyShips.putIfAbsent(vsCompat.getShipId(ship), ship);
                 }
+            }
+
+            List<ShipWorldEmitter> shipWorldEmitters = new ArrayList<>();
+            for (Map.Entry<Long, Object> shipEntry : nearbyShips.entrySet()) {
+                long shipId = shipEntry.getKey();
+                Object ship = shipEntry.getValue();
+
+                Map<BlockPos, Integer> emitters = gameState.shipEmitterCache.get(shipId);
+                long lastScan = gameState.shipEmitterScanTime.getOrDefault(shipId, Long.MIN_VALUE);
+                if (emitters == null || level.getGameTime() - lastScan >= SHIP_EMITTER_RESCAN_INTERVAL) {
+                    emitters = vsCompat.getShipLightEmitters(level, ship);
+                    gameState.shipEmitterCache.put(shipId, emitters);
+                    gameState.shipEmitterScanTime.put(shipId, level.getGameTime());
+                }
+
+                for (Map.Entry<BlockPos, Integer> emitter : emitters.entrySet()) {
+                    if (sourceCount >= maxSources) break;
+                    sourceCount++;
+
+                    BlockPos shipPos = emitter.getKey();
+                    if (ownPlacedLights.contains(shipPos)) continue;
+                    int emission = emitter.getValue();
+                    double[] worldPos = vsCompat.transformShipToWorld(ship,
+                            shipPos.getX() + 0.5, shipPos.getY() + 0.5, shipPos.getZ() + 0.5);
+
+                    int gridX = (int) Math.floor(worldPos[0] / mergeDistance);
+                    int gridY = (int) Math.floor(worldPos[1] / mergeDistance);
+                    int gridZ = (int) Math.floor(worldPos[2] / mergeDistance);
+                    BlockPos gridPos = new BlockPos(gridX, gridY, gridZ);
+
+                    // Carry equals the emission so an already-lit lamp never
+                    // re-runs the ignition fade as the ship moves.
+                    worldClusters.computeIfAbsent(gridPos, k -> new LightCluster())
+                                 .add(worldPos[0], worldPos[1], worldPos[2], emission, false, emission);
+
+                    shipWorldEmitters.add(new ShipWorldEmitter(shipId, worldPos[0], worldPos[1], worldPos[2], emission));
+                }
+            }
+
+            // Pass 2: light each ship from the static world's lamps and from the
+            // other ships' lamps collected above — ship-to-ship lighting is just
+            // the world→ship projection fed with another ship's emitters.
+            for (Map.Entry<Long, Object> shipEntry : nearbyShips.entrySet()) {
+                projectWorldEmittersOntoShip(level, shipEntry.getValue(), shipEntry.getKey(), shipWorldEmitters, gameState, ownPlacedLights, worldUltraClusters, vsCompat);
             }
         }
         
@@ -707,14 +722,17 @@ public class LightLogic {
     }
 
     /**
-     * Projects the genuine world light blocks within reach of a ship into its
-     * shipyard, so a lamp post lights a passing ship's hull. Emitters come from a
-     * per-chunk cache: world lamps are static, so the cache needs no invalidation
-     * on ship movement and is shared by every ship. Each chunk section is
-     * pre-filtered with a palette-level check (maybeHas), so terrain without any
-     * luminous block state is skipped without reading a single block.
+     * Projects the light sources within reach of a ship into its shipyard: the
+     * genuine world light blocks nearby (so a lamp post lights a passing ship's
+     * hull) and other ships' lamps at their current world positions (ship-to-ship
+     * lighting). World emitters come from a per-chunk cache: world lamps are
+     * static, so the cache needs no invalidation on ship movement and is shared
+     * by every ship. Each chunk section is pre-filtered with a palette-level
+     * check (maybeHas), so terrain without any luminous block state is skipped
+     * without reading a single block. All sources compete in one ranking under
+     * the same per-ship cap.
      */
-    private static void projectWorldEmittersOntoShip(ServerLevel level, Object ship, LightGameState gameState, Set<BlockPos> ownPlacedLights, Map<BlockPos, LightCluster> exactClusters, IVSCompat vsCompat) {
+    private static void projectWorldEmittersOntoShip(ServerLevel level, Object ship, long shipId, List<ShipWorldEmitter> shipEmitters, LightGameState gameState, Set<BlockPos> ownPlacedLights, Map<BlockPos, LightCluster> exactClusters, IVSCompat vsCompat) {
         double[] worldBounds = vsCompat.getShipWorldBounds(ship);
         if (worldBounds == null) return;
 
@@ -727,8 +745,22 @@ public class LightLogic {
                 .computeIfAbsent(level.dimension(), k -> new HashMap<>());
         long now = level.getGameTime();
 
-        record NearbyEmitter(BlockPos pos, int emission, int effective) {}
+        record NearbyEmitter(double x, double y, double z, int emission, int effective) {}
         List<NearbyEmitter> nearby = new ArrayList<>();
+
+        // Other ships' lamps at their current world positions. Distance to this
+        // ship's world box decides cutoff and ranking, exactly like world lamps.
+        for (ShipWorldEmitter shipEmitter : shipEmitters) {
+            if (shipEmitter.shipId() == shipId) continue;
+            double sdx = Math.max(0, Math.max(worldBounds[0] - shipEmitter.x(), shipEmitter.x() - worldBounds[3]));
+            double sdy = Math.max(0, Math.max(worldBounds[1] - shipEmitter.y(), shipEmitter.y() - worldBounds[4]));
+            double sdz = Math.max(0, Math.max(worldBounds[2] - shipEmitter.z(), shipEmitter.z() - worldBounds[5]));
+            double shipDist = sdx + sdy + sdz;
+            int shipEffective = shipEmitter.emission() - (int) Math.floor(Math.max(0, shipDist - 1.0));
+            if (shipEffective <= 0) continue;
+
+            nearby.add(new NearbyEmitter(shipEmitter.x(), shipEmitter.y(), shipEmitter.z(), shipEmitter.emission(), shipEffective));
+        }
 
         int minChunkX = ((int) Math.floor(minX)) >> 4;
         int maxChunkX = ((int) Math.floor(maxX)) >> 4;
@@ -762,7 +794,7 @@ public class LightLogic {
                     int effective = emission - (int) Math.floor(Math.max(0, dist - 1.0));
                     if (effective <= 0) continue;
 
-                    nearby.add(new NearbyEmitter(pos, emission, effective));
+                    nearby.add(new NearbyEmitter(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, emission, effective));
                 }
             }
         }
@@ -773,8 +805,7 @@ public class LightLogic {
         int count = Math.min(nearby.size(), MAX_WORLD_EMITTERS_PER_SHIP);
         for (int i = 0; i < count; i++) {
             NearbyEmitter emitter = nearby.get(i);
-            Vec3 source = new Vec3(emitter.pos.getX() + 0.5, emitter.pos.getY() + 0.5, emitter.pos.getZ() + 0.5);
-            projectIntoShipyard(level, ship, source, emitter.emission, false, exactClusters, vsCompat);
+            projectIntoShipyard(level, ship, new Vec3(emitter.x, emitter.y, emitter.z), emitter.emission, false, exactClusters, vsCompat);
         }
     }
 
