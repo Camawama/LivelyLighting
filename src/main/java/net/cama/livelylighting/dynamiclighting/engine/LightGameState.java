@@ -17,11 +17,14 @@ public class LightGameState {
     // Maps dimension -> Set<BlockPos> of lights created/influenced by players
     public final Map<ResourceKey<Level>, Set<BlockPos>> playerLights = new HashMap<>();
     
-    // Maps ShipID -> (BlockPos -> LightLevel)
-    public final Map<Long, Map<BlockPos, Integer>> shipLights = new HashMap<>();
-    
-    // Maps ShipID -> Set<BlockPos> of lights created/influenced by players on ships
-    public final Map<Long, Set<BlockPos>> shipPlayerLights = new HashMap<>();
+    // Maps ShipID -> (shipyard BlockPos -> light emission) of the ship's own
+    // light-emitting blocks, rescanned periodically. Projected into the world each
+    // tick so a moving/rotating ship's lamps illuminate the world around it.
+    // Nothing is ever placed inside the shipyard.
+    public final Map<Long, Map<BlockPos, Integer>> shipEmitterCache = new HashMap<>();
+
+    // Maps ShipID -> game time of the last emitter scan.
+    public final Map<Long, Long> shipEmitterScanTime = new HashMap<>();
     
     // Maps Dimension -> (EntityID -> (SourceID -> LightData))
     public final Map<ResourceKey<Level>, Map<Integer, Map<String, LightData>>> entityLitState = new HashMap<>();
@@ -55,8 +58,8 @@ public class LightGameState {
     public void clear() {
         levelLights.clear();
         playerLights.clear();
-        shipLights.clear();
-        shipPlayerLights.clear();
+        shipEmitterCache.clear();
+        shipEmitterScanTime.clear();
         entityLitState.clear();
         sourceEstablished.clear();
         lastSoundTime.clear();

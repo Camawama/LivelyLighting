@@ -1,6 +1,5 @@
 package net.cama.livelylighting.dynamiclighting.engine;
 
-import net.cama.livelylighting.compat.valkyrienskies.IVSCompat;
 import net.cama.livelylighting.data.LivelyLightingData;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -10,7 +9,7 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.LightBlock;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.phys.Vec3;
 
 import java.util.*;
 
@@ -136,7 +135,7 @@ public class LightPropagator {
         }
     }
     
-    public static void applyChanges(ServerLevel level, Map<BlockPos, Integer> currentLights, Set<BlockPos> currentPlayerLights, Map<BlockPos, Integer> desiredLights, Set<BlockPos> desiredPlayerLights, Map<BlockPos, Integer> desiredCarry, boolean smoothing, boolean smoothingAllEntities, int decayRate, int fadeInRate, Object ship, IVSCompat vsCompat) {
+    public static void applyChanges(ServerLevel level, Map<BlockPos, Integer> currentLights, Set<BlockPos> currentPlayerLights, Map<BlockPos, Integer> desiredLights, Set<BlockPos> desiredPlayerLights, Map<BlockPos, Integer> desiredCarry, boolean smoothing, boolean smoothingAllEntities, int decayRate, int fadeInRate) {
         Map<BlockPos, Integer> nextCurrentLights = new HashMap<>();
         Set<BlockPos> nextCurrentPlayerLights = new HashSet<>();
 
@@ -237,7 +236,7 @@ public class LightPropagator {
             if (newLevel >= currentLevel && newLevel > 0) {
                 boolean placeSuccess;
                 if (newLevel > currentLevel || shouldRePlace(level, pos, newLevel)) {
-                    placeSuccess = placeLight(level, pos, newLevel, true, ship, vsCompat);
+                    placeSuccess = placeLight(level, pos, newLevel);
                 } else {
                     placeSuccess = true; // Already correctly placed
                 }
@@ -265,7 +264,7 @@ public class LightPropagator {
             
             if (newLevel < currentLevel) {
                 if (newLevel > 0) {
-                    if (placeLight(level, pos, newLevel, true, ship, vsCompat)) {
+                    if (placeLight(level, pos, newLevel)) {
                         nextCurrentLights.put(pos, newLevel);
                         if (trackAsPlayerLight) {
                             nextCurrentPlayerLights.add(pos);
@@ -314,24 +313,8 @@ public class LightPropagator {
         return state.isAir() || (state.getFluidState().isSource() && state.is(Blocks.WATER));
     }
 
-    public static boolean placeLight(ServerLevel level, BlockPos pos, int lightLevel, boolean checkOwnership, Object ship, IVSCompat vsCompat) {
+    public static boolean placeLight(ServerLevel level, BlockPos pos, int lightLevel) {
         if (!level.isLoaded(pos)) return false;
-        
-        if (ship != null && vsCompat != null) {
-            if (!vsCompat.isPosInShipBounds(ship, pos)) {
-                return false;
-            }
-            
-            LevelChunk chunk = level.getChunkSource().getChunk(pos.getX() >> 4, pos.getZ() >> 4, false);
-            if (chunk == null) return false;
-            
-            int sectionIndex = level.getSectionIndex(pos.getY());
-            if (sectionIndex >= 0 && sectionIndex < chunk.getSections().length) {
-                if (chunk.getSection(sectionIndex).hasOnlyAir()) {
-                    return false;
-                }
-            }
-        }
 
         BlockState state = level.getBlockState(pos);
         int flags = Block.UPDATE_CLIENTS;
@@ -381,13 +364,18 @@ public class LightPropagator {
     }
     
     public static BlockPos findValidLightPos(Level level, BlockPos eyePos, BlockPos feetPos, int radius) {
+        return findValidLightPos(level, eyePos, feetPos, radius, null);
+    }
+
+    public static BlockPos findValidLightPos(Level level, BlockPos eyePos, BlockPos feetPos, int radius, Vec3 losFrom) {
         if (isValidLightSpot(level, eyePos)) return eyePos;
         if (isValidLightSpot(level, eyePos.above())) return eyePos.above();
         if (isValidLightSpot(level, feetPos)) return feetPos;
 
-        BlockPos bestPos = null;
-        double bestDistSq = Double.MAX_VALUE;
-
+        // Nearest-first, but a candidate must also have an unobstructed light path
+        // back to the source — otherwise an enclosed entity's light gets anchored
+        // on the far side of a wall and shines through it.
+        List<BlockPos> candidates = new ArrayList<>();
         for (int x = -radius; x <= radius; x++) {
             for (int y = -radius; y <= radius; y++) {
                 for (int z = -radius; z <= radius; z++) {
@@ -395,17 +383,50 @@ public class LightPropagator {
 
                     BlockPos pos = eyePos.offset(x, y, z);
                     if (isValidLightSpot(level, pos)) {
-                        double distSq = pos.distToCenterSqr(eyePos.getX() + 0.5, eyePos.getY() + 0.5, eyePos.getZ() + 0.5);
-                        if (distSq < bestDistSq) {
-                            bestDistSq = distSq;
-                            bestPos = pos;
-                        }
+                        candidates.add(pos.immutable());
                     }
                 }
             }
         }
 
-        return bestPos;
+        candidates.sort(Comparator.comparingDouble(
+                pos -> pos.distToCenterSqr(eyePos.getX() + 0.5, eyePos.getY() + 0.5, eyePos.getZ() + 0.5)));
+
+        for (BlockPos pos : candidates) {
+            if (losFrom == null || hasLightPath(level, new Vec3(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5), losFrom)) {
+                return pos;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Whether light can plausibly travel between two points: samples the segment
+     * and fails on any intervening block that is fully opaque to light
+     * (getLightBlock == 15), matching the light engine's own transparency rule so
+     * glass and other light-passing blocks don't block the check. The endpoint
+     * blocks themselves are exempt — a projectile's eye may sit just inside the
+     * wall it is stuck in.
+     */
+    public static boolean hasLightPath(Level level, Vec3 from, Vec3 to) {
+        Vec3 delta = to.subtract(from);
+        double length = delta.length();
+        if (length < 1.0E-4) return true;
+
+        Vec3 step = delta.scale(1.0 / length);
+        BlockPos fromPos = BlockPos.containing(from);
+        BlockPos toPos = BlockPos.containing(to);
+
+        for (double travelled = 0.25; travelled < length; travelled += 0.25) {
+            Vec3 point = from.add(step.scale(travelled));
+            BlockPos pos = BlockPos.containing(point);
+            if (pos.equals(fromPos) || pos.equals(toPos)) continue;
+            if (!level.isLoaded(pos)) return false;
+
+            BlockState state = level.getBlockState(pos);
+            if (state.getLightBlock(level, pos) >= 15) return false;
+        }
+        return true;
     }
     
     public static boolean isValidLightSpot(Level level, BlockPos pos) {

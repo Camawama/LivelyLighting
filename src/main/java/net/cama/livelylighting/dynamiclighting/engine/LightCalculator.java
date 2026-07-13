@@ -396,9 +396,14 @@ public class LightCalculator {
     }
     
     private static boolean isSuffocating(Entity entity, ServerLevel level) {
-        if (entity instanceof ItemFrame) return false;
+        // Only living entities suffocate. Projectiles stuck in walls (spectral
+        // arrows), dropped items and item frames keep their light — the anchor
+        // search's line-of-sight check already prevents a genuinely buried source
+        // from lighting through blocks, and a stuck arrow's tip being embedded
+        // made isInWall() wrongly extinguish it.
+        if (!(entity instanceof LivingEntity)) return false;
         if (entity.isInWall()) return true;
-        
+
         BlockPos eyePos = BlockPos.containing(entity.getEyePosition());
         BlockState state = level.getBlockState(eyePos);
         return state.isSuffocating(level, eyePos);

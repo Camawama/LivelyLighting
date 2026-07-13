@@ -164,11 +164,7 @@ public class LightManager {
 
     private static boolean isTracked(ResourceKey<Level> dimension, BlockPos pos) {
         Map<BlockPos, Integer> lights = gameState.levelLights.get(dimension);
-        if (lights != null && lights.containsKey(pos)) return true;
-        for (Map<BlockPos, Integer> shipMap : gameState.shipLights.values()) {
-            if (shipMap.containsKey(pos)) return true;
-        }
-        return false;
+        return lights != null && lights.containsKey(pos);
     }
 
     @SubscribeEvent

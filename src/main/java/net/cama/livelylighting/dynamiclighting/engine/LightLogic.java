@@ -28,6 +28,12 @@ import java.util.*;
 
 public class LightLogic {
 
+    // How often (in ticks) a ship's blocks are rescanned for light emitters.
+    // Between scans the cached emitter list is re-projected every tick, so ship
+    // motion stays perfectly current; only placing/breaking a lamp on the ship
+    // waits at most this long to be noticed.
+    private static final int SHIP_EMITTER_RESCAN_INTERVAL = 60;
+
     public static void runLightLogic(ServerLevel level, LivelyConfig config, LightGameState gameState, IVSCompat vsCompat, boolean useVs) {
         ResourceKey<Level> dimension = level.dimension();
         Map<BlockPos, Integer> worldCurrentLights = gameState.levelLights.computeIfAbsent(dimension, k -> new HashMap<>());
@@ -35,10 +41,6 @@ public class LightLogic {
         Map<BlockPos, Integer> worldDesiredLights = new HashMap<>();
         Set<BlockPos> worldDesiredPlayerLights = new HashSet<>();
         Map<BlockPos, Integer> worldDesiredCarry = new HashMap<>();
-
-        Map<Long, Map<BlockPos, Integer>> shipDesiredLights = new HashMap<>();
-        Map<Long, Set<BlockPos>> shipDesiredPlayerLights = new HashMap<>();
-        Map<Long, Map<BlockPos, Integer>> shipDesiredCarry = new HashMap<>();
 
         boolean smoothing = config.smoothing;
         boolean smoothingAllEntities = config.smoothing_all_entities;
@@ -54,33 +56,31 @@ public class LightLogic {
         // block of the sub-block interpolation and must never be grid-merged or
         // position-averaged like regular clusters.
         Map<BlockPos, LightCluster> worldUltraClusters = new HashMap<>();
-        Map<Long, Map<BlockPos, LightCluster>> shipClusters = new HashMap<>();
         int sourceCount = 0;
+
+        // The radius is capped at 192: Valkyrien Skies mixes into
+        // Level.getEntities and silently returns an EMPTY list for "too big"
+        // boxes — VS 2.4.9 rejects volume > 1e8 (~464 blocks cubed; verified in
+        // BugFixUtil.isCollisionBoxTooBig bytecode), older builds reject > 1000
+        // per axis. That killed all entity lights at higher view distances.
+        // 192 (~5.7e7 volume) clears both limits with margin, and light from an
+        // entity beyond 192 blocks is imperceptible anyway.
+        int viewDistance = Math.min(level.getServer().getPlayerList().getViewDistance() * 16, 192);
 
         Set<Integer> processedIds = new HashSet<>();
 
         for (Player player : level.players()) {
             if (sourceCount >= maxSources) break;
             if (player.isSpectator()) continue;
-            
-            processEntity(player, level, worldClusters, worldUltraClusters, shipClusters, processedIds, config, useVs, gameState, vsCompat);
+
+            processEntity(player, level, worldClusters, worldUltraClusters, processedIds, config, gameState);
             sourceCount++;
         }
-        
+
         if (sourceCount < maxSources) {
             // Query the entity section index around each player instead of scanning
             // every loaded entity against every player. processedIds dedupes
             // entities that fall inside multiple players' ranges.
-            //
-            // The radius is capped at 192: Valkyrien Skies mixes into
-            // Level.getEntities and silently returns an EMPTY list for "too big"
-            // boxes — VS 2.4.9 rejects volume > 1e8 (~464 blocks cubed; verified in
-            // BugFixUtil.isCollisionBoxTooBig bytecode), older builds reject > 1000
-            // per axis. That killed all entity lights at higher view distances.
-            // 192 (~5.7e7 volume) clears both limits with margin, and light from an
-            // entity beyond 192 blocks is imperceptible anyway.
-            int viewDistance = Math.min(level.getServer().getPlayerList().getViewDistance() * 16, 192);
-
             outer:
             for (Player player : level.players()) {
                 AABB searchBox = player.getBoundingBox().inflate(viewDistance);
@@ -89,8 +89,53 @@ public class LightLogic {
                     if (entity instanceof Player) continue;
                     if (!shouldCheckEntity(entity, config)) continue;
 
-                    if (processEntity(entity, level, worldClusters, worldUltraClusters, shipClusters, processedIds, config, useVs, gameState, vsCompat)) {
+                    if (processEntity(entity, level, worldClusters, worldUltraClusters, processedIds, config, gameState)) {
                         sourceCount++;
+                    }
+                }
+            }
+        }
+
+        // Valkyrien Skies: project each nearby ship's own light-emitting blocks
+        // into the world as dynamic light sources. As the ship moves and rotates,
+        // the world light blocks follow, so the ship's lamps appear to illuminate
+        // the world around the ship. Entities standing on ships already have true
+        // world coordinates and were handled above like any other entity — nothing
+        // is ever placed inside the shipyard.
+        if (useVs) {
+            Set<Long> scannedShips = new HashSet<>();
+            for (Player player : level.players()) {
+                AABB searchBox = player.getBoundingBox().inflate(viewDistance);
+                for (Object ship : vsCompat.getShipsIntersecting(level, searchBox)) {
+                    long shipId = vsCompat.getShipId(ship);
+                    if (!scannedShips.add(shipId)) continue;
+
+                    Map<BlockPos, Integer> emitters = gameState.shipEmitterCache.get(shipId);
+                    long lastScan = gameState.shipEmitterScanTime.getOrDefault(shipId, Long.MIN_VALUE);
+                    if (emitters == null || level.getGameTime() - lastScan >= SHIP_EMITTER_RESCAN_INTERVAL) {
+                        emitters = vsCompat.getShipLightEmitters(level, ship);
+                        gameState.shipEmitterCache.put(shipId, emitters);
+                        gameState.shipEmitterScanTime.put(shipId, level.getGameTime());
+                    }
+
+                    for (Map.Entry<BlockPos, Integer> emitter : emitters.entrySet()) {
+                        if (sourceCount >= maxSources) break;
+                        sourceCount++;
+
+                        BlockPos shipPos = emitter.getKey();
+                        int emission = emitter.getValue();
+                        double[] worldPos = vsCompat.transformShipToWorld(ship,
+                                shipPos.getX() + 0.5, shipPos.getY() + 0.5, shipPos.getZ() + 0.5);
+
+                        int gridX = (int) Math.floor(worldPos[0] / mergeDistance);
+                        int gridY = (int) Math.floor(worldPos[1] / mergeDistance);
+                        int gridZ = (int) Math.floor(worldPos[2] / mergeDistance);
+                        BlockPos gridPos = new BlockPos(gridX, gridY, gridZ);
+
+                        // Carry equals the emission so an already-lit lamp never
+                        // re-runs the ignition fade as the ship moves.
+                        worldClusters.computeIfAbsent(gridPos, k -> new LightCluster())
+                                     .add(worldPos[0], worldPos[1], worldPos[2], emission, false, emission);
                     }
                 }
             }
@@ -110,8 +155,8 @@ public class LightLogic {
             
             if (useVs) {
                 Set<Long> loadedShipIds = vsCompat.getLoadedShipIds(level);
-                gameState.shipLights.keySet().removeIf(id -> !loadedShipIds.contains(id));
-                gameState.shipPlayerLights.keySet().removeIf(id -> !loadedShipIds.contains(id));
+                gameState.shipEmitterCache.keySet().removeIf(id -> !loadedShipIds.contains(id));
+                gameState.shipEmitterScanTime.keySet().removeIf(id -> !loadedShipIds.contains(id));
             }
             
             // Cleanup per-entity caches, scoped to this dimension only
@@ -137,110 +182,13 @@ public class LightLogic {
         LightPropagator.calculateLightField(level, worldClusters, worldDesiredLights, worldDesiredPlayerLights, worldDesiredCarry, smoothing, clusterGrowing, maxRadius);
         LightPropagator.calculateLightField(level, worldUltraClusters, worldDesiredLights, worldDesiredPlayerLights, worldDesiredCarry, smoothing, clusterGrowing, maxRadius);
 
-        if (useVs) {
-            Map<Long, Object> shipLookup = vsCompat.getShipLookup(level);
-
-            for (Map.Entry<Long, Map<BlockPos, LightCluster>> entry : shipClusters.entrySet()) {
-                Long shipId = entry.getKey();
-                Map<BlockPos, LightCluster> clusters = entry.getValue();
-                Map<BlockPos, Integer> desired = shipDesiredLights.computeIfAbsent(shipId, k -> new HashMap<>());
-                Set<BlockPos> desiredPlayer = shipDesiredPlayerLights.computeIfAbsent(shipId, k -> new HashSet<>());
-                Map<BlockPos, Integer> carry = shipDesiredCarry.computeIfAbsent(shipId, k -> new HashMap<>());
-                LightPropagator.calculateLightField(level, clusters, desired, desiredPlayer, carry, smoothing, clusterGrowing, maxRadius);
-            }
-            
-            List<LightCluster> allWorldClusters = new ArrayList<>(worldClusters.values());
-            allWorldClusters.addAll(worldUltraClusters.values());
-            for (LightCluster lightCluster : allWorldClusters) {
-                AABB aabb = new AABB(lightCluster.x - maxRadius, lightCluster.y - maxRadius, lightCluster.z - maxRadius,
-                                     lightCluster.x + maxRadius, lightCluster.y + maxRadius, lightCluster.z + maxRadius);
-                for (Object ship : vsCompat.getShipsIntersecting(level, aabb)) {
-                    double[] shipPos = vsCompat.transformWorldToShip(ship, lightCluster.x, lightCluster.y, lightCluster.z);
-
-                    long shipId = vsCompat.getShipId(ship);
-                    Map<BlockPos, Integer> desired = shipDesiredLights.computeIfAbsent(shipId, k -> new HashMap<>());
-                    Set<BlockPos> desiredPlayer = shipDesiredPlayerLights.computeIfAbsent(shipId, k -> new HashSet<>());
-                    Map<BlockPos, Integer> carry = shipDesiredCarry.computeIfAbsent(shipId, k -> new HashMap<>());
-
-                    LightCluster shipLightCluster = new LightCluster();
-                    shipLightCluster.add(shipPos[0], shipPos[1], shipPos[2], (int) lightCluster.strength, lightCluster.isPlayer, lightCluster.carryLevel);
-                    shipLightCluster.maxLightLevel = lightCluster.maxLightLevel;
-                    shipLightCluster.normalize();
-
-                    LightPropagator.calculateLightField(level, Map.of(BlockPos.containing(shipPos[0], shipPos[1], shipPos[2]), shipLightCluster), desired, desiredPlayer, carry, smoothing, clusterGrowing, maxRadius);
-                }
-            }
-            
-            for (Map.Entry<Long, Map<BlockPos, LightCluster>> entry : shipClusters.entrySet()) {
-                Long shipId = entry.getKey();
-                Object ship = shipLookup.get(shipId);
-                if (ship == null) continue;
-                
-                for (LightCluster lightCluster : entry.getValue().values()) {
-                    double[] worldPos = vsCompat.transformShipToWorld(ship, lightCluster.x, lightCluster.y, lightCluster.z);
-
-                    LightCluster worldLightCluster = new LightCluster();
-                    worldLightCluster.add(worldPos[0], worldPos[1], worldPos[2], (int) lightCluster.strength, lightCluster.isPlayer, lightCluster.carryLevel);
-                    worldLightCluster.maxLightLevel = lightCluster.maxLightLevel;
-                    worldLightCluster.normalize();
-
-                    LightPropagator.calculateLightField(level, Map.of(BlockPos.containing(worldPos[0], worldPos[1], worldPos[2]), worldLightCluster), worldDesiredLights, worldDesiredPlayerLights, worldDesiredCarry, smoothing, clusterGrowing, maxRadius);
-                }
-            }
-        }
-
-        // 3. Apply Changes
-        LightPropagator.applyChanges(level, worldCurrentLights, worldPlayerLights, worldDesiredLights, worldDesiredPlayerLights, worldDesiredCarry, smoothing, smoothingAllEntities, decayRate, fadeInRate, null, vsCompat);
-        
-        if (useVs) {
-            Map<Long, Object> shipLookup = vsCompat.getShipLookup(level);
-
-            for (Map.Entry<Long, Map<BlockPos, Integer>> entry : shipDesiredLights.entrySet()) {
-                Long shipId = entry.getKey();
-                Object ship = shipLookup.get(shipId);
-                if (ship == null) continue;
-                
-                Map<BlockPos, Integer> desired = entry.getValue();
-                Set<BlockPos> desiredPlayer = shipDesiredPlayerLights.getOrDefault(shipId, new HashSet<>());
-                Map<BlockPos, Integer> carry = shipDesiredCarry.getOrDefault(shipId, new HashMap<>());
-
-                Map<BlockPos, Integer> current = gameState.shipLights.computeIfAbsent(shipId, k -> new HashMap<>());
-                Set<BlockPos> currentPlayer = gameState.shipPlayerLights.computeIfAbsent(shipId, k -> new HashSet<>());
-
-                LightPropagator.applyChanges(level, current, currentPlayer, desired, desiredPlayer, carry, smoothing, smoothingAllEntities, decayRate, fadeInRate, ship, vsCompat);
-            }
-            
-            Iterator<Map.Entry<Long, Map<BlockPos, Integer>>> shipIt = gameState.shipLights.entrySet().iterator();
-            while (shipIt.hasNext()) {
-                Map.Entry<Long, Map<BlockPos, Integer>> entry = shipIt.next();
-                Long shipId = entry.getKey();
-                if (!shipDesiredLights.containsKey(shipId)) {
-                    Map<BlockPos, Integer> current = entry.getValue();
-                    Set<BlockPos> currentPlayer = gameState.shipPlayerLights.getOrDefault(shipId, new HashSet<>());
-                    
-                    Object ship = shipLookup.get(shipId);
-                    if (ship == null) {
-                        shipIt.remove();
-                        gameState.shipPlayerLights.remove(shipId);
-                        continue;
-                    }
-                    
-                    if (current.isEmpty()) {
-                        shipIt.remove();
-                        gameState.shipPlayerLights.remove(shipId);
-                    } else {
-                        LightPropagator.applyChanges(level, current, currentPlayer, new HashMap<>(), new HashSet<>(), new HashMap<>(), smoothing, smoothingAllEntities, decayRate, fadeInRate, ship, vsCompat);
-                        if (current.isEmpty()) {
-                            shipIt.remove();
-                            gameState.shipPlayerLights.remove(shipId);
-                        }
-                    }
-                }
-            }
-        }
+        // 3. Apply Changes. Ship-projected lights live in the world like any other
+        // source, so the normal fade/removal path cleans them up when the ship
+        // moves away or unloads.
+        LightPropagator.applyChanges(level, worldCurrentLights, worldPlayerLights, worldDesiredLights, worldDesiredPlayerLights, worldDesiredCarry, smoothing, smoothingAllEntities, decayRate, fadeInRate);
     }
 
-    private static boolean processEntity(Entity entity, ServerLevel level, Map<BlockPos, LightCluster> worldClusters, Map<BlockPos, LightCluster> worldUltraClusters, Map<Long, Map<BlockPos, LightCluster>> shipClusters, Set<Integer> processedIds, LivelyConfig config, boolean useVs, LightGameState gameState, IVSCompat vsCompat) {
+    private static boolean processEntity(Entity entity, ServerLevel level, Map<BlockPos, LightCluster> worldClusters, Map<BlockPos, LightCluster> worldUltraClusters, Set<Integer> processedIds, LivelyConfig config, LightGameState gameState) {
         if (!processedIds.add(entity.getId())) return false;
 
         LivelyLightingData data = LivelyLightingData.get(level);
@@ -269,7 +217,7 @@ public class LightLogic {
         Integer forcedLevel = data.getForcedLevel(entity.getUUID());
         if (forcedLevel != null) {
             LightData lightData = new LightData(forcedLevel, false, Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
-            processLightData(entity, level, worldClusters, worldUltraClusters, shipClusters, config, useVs, lightData, "forced", gameState, vsCompat, velocity);
+            processLightData(entity, level, worldClusters, worldUltraClusters, config, lightData, "forced", gameState, velocity);
             return true;
         }
 
@@ -279,19 +227,19 @@ public class LightLogic {
             
             // Main Hand
             LightData main = LightCalculator.getItemLightLevel(living.getMainHandItem(), entity, level, config);
-            processLightData(entity, level, worldClusters, worldUltraClusters, shipClusters, config, useVs, main, "mainhand", gameState, vsCompat, velocity);
+            processLightData(entity, level, worldClusters, worldUltraClusters, config, main, "mainhand", gameState, velocity);
             if (main.level > 0) foundLight = true;
 
             // Off Hand
             LightData off = LightCalculator.getItemLightLevel(living.getOffhandItem(), entity, level, config);
-            processLightData(entity, level, worldClusters, worldUltraClusters, shipClusters, config, useVs, off, "offhand", gameState, vsCompat, velocity);
+            processLightData(entity, level, worldClusters, worldUltraClusters, config, off, "offhand", gameState, velocity);
             if (off.level > 0) foundLight = true;
 
             // Armor
             for (net.minecraft.world.entity.EquipmentSlot slot : net.minecraft.world.entity.EquipmentSlot.values()) {
                 if (slot.getType() == net.minecraft.world.entity.EquipmentSlot.Type.ARMOR) {
                     LightData armor = LightCalculator.getItemLightLevel(living.getItemBySlot(slot), entity, level, config);
-                    processLightData(entity, level, worldClusters, worldUltraClusters, shipClusters, config, useVs, armor, slot.getName(), gameState, vsCompat, velocity);
+                    processLightData(entity, level, worldClusters, worldUltraClusters, config, armor, slot.getName(), gameState, velocity);
                     if (armor.level > 0) foundLight = true;
                 }
             }
@@ -306,13 +254,13 @@ public class LightLogic {
                 } else {
                     blockLight = new LightData(0, false, Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
                 }
-                processLightData(entity, level, worldClusters, worldUltraClusters, shipClusters, config, useVs, blockLight, "carried_block", gameState, vsCompat, velocity);
+                processLightData(entity, level, worldClusters, worldUltraClusters, config, blockLight, "carried_block", gameState, velocity);
                 if (blockLight.level > 0) foundLight = true;
             }
 
             // Check other sources (fire, glow effect, etc)
             LightData entityLight = LightCalculator.getEntityLightLevel(entity, level, config);
-            processLightData(entity, level, worldClusters, worldUltraClusters, shipClusters, config, useVs, entityLight, "body", gameState, vsCompat, velocity);
+            processLightData(entity, level, worldClusters, worldUltraClusters, config, entityLight, "body", gameState, velocity);
             if (entityLight.level > 0) foundLight = true;
             
             return foundLight;
@@ -322,7 +270,7 @@ public class LightLogic {
             LightData lastData = getEntityLitState(level, entity.getId(), "combined", gameState);
             
             if (lightData.level > 0 || (lastData != null && lastData.level > 0)) {
-                processLightData(entity, level, worldClusters, worldUltraClusters, shipClusters, config, useVs, lightData, "combined", gameState, vsCompat, velocity);
+                processLightData(entity, level, worldClusters, worldUltraClusters, config, lightData, "combined", gameState, velocity);
                 return lightData.level > 0;
             }
             return false;
@@ -352,7 +300,7 @@ public class LightLogic {
         }
     }
     
-    private static void processLightData(Entity entity, ServerLevel level, Map<BlockPos, LightCluster> worldClusters, Map<BlockPos, LightCluster> worldUltraClusters, Map<Long, Map<BlockPos, LightCluster>> shipClusters, LivelyConfig config, boolean useVs, LightData lightData, String sourceId, LightGameState gameState, IVSCompat vsCompat, Vec3 velocity) {
+    private static void processLightData(Entity entity, ServerLevel level, Map<BlockPos, LightCluster> worldClusters, Map<BlockPos, LightCluster> worldUltraClusters, LivelyConfig config, LightData lightData, String sourceId, LightGameState gameState, Vec3 velocity) {
         LivelyLightingData worldData = LivelyLightingData.get(level);
         int lightLevel = lightData.level;
         List<ParticleType<?>> particles = lightData.particles;
@@ -460,22 +408,10 @@ public class LightLogic {
         }
 
         if (lightLevel > 0) {
-            Object ship = useVs ? vsCompat.getShipObjectManagingPos(level, entity.blockPosition()) : null;
-            
-            if (ship != null) {
-                double[] shipPos = vsCompat.transformWorldToShip(ship, entity.getX(), entity.getEyeY(), entity.getZ());
-                
-                double mergeDistance = config.experimental.cluster_merge_distance;
-                
-                int gridX = (int) Math.floor(shipPos[0] / mergeDistance);
-                int gridY = (int) Math.floor(shipPos[1] / mergeDistance);
-                int gridZ = (int) Math.floor(shipPos[2] / mergeDistance);
-                BlockPos gridPos = new BlockPos(gridX, gridY, gridZ);
-                
-                shipClusters.computeIfAbsent(vsCompat.getShipId(ship), s -> new HashMap<>())
-                            .computeIfAbsent(gridPos, k -> new LightCluster())
-                            .add(shipPos[0], shipPos[1], shipPos[2], lightLevel, entity instanceof Player, 0);
-            } else if (smoothingActive && config.experimental.ultra_smoothing) {
+            // Entities on Valkyrien Skies ships have true world coordinates, so
+            // they take the same world paths below — light blocks are only ever
+            // placed in the static world, never inside a shipyard.
+            if (smoothingActive && config.experimental.ultra_smoothing) {
                 // Ultra smoothing: no anchor block at all — the entity is treated as
                 // a continuous point light and every nearby block gets its exact
                 // interpolated level. Predictive lead, anchor caching and the
@@ -539,13 +475,17 @@ public class LightLogic {
 
                 if (lastPos != null && LightPropagator.isValidLightSpot(level, lastPos)) {
                     double distSq = lastPos.distToCenterSqr(entity.getX(), entity.getEyeY(), entity.getZ());
-                    if (distSq < spacingSq) { // Within spacing distance
+                    if (distSq < spacingSq // Within spacing distance
+                            && LightPropagator.hasLightPath(level,
+                                    new Vec3(lastPos.getX() + 0.5, lastPos.getY() + 0.5, lastPos.getZ() + 0.5),
+                                    new Vec3(entity.getX(), entity.getEyeY(), entity.getZ()))) {
                         bestPos = lastPos;
                     }
                 }
 
                 if (bestPos == null) {
-                    bestPos = LightPropagator.findValidLightPos(level, eyePos, entity.blockPosition(), searchRadius);
+                    bestPos = LightPropagator.findValidLightPos(level, eyePos, entity.blockPosition(), searchRadius,
+                            new Vec3(entity.getX(), entity.getEyeY(), entity.getZ()));
                 }
 
                 if (bestPos != null) {
@@ -624,6 +564,10 @@ public class LightLogic {
                     int posLevel = Math.min(15, (int) Math.ceil(lightLevel - dist));
                     if (posLevel <= 0) continue;
                     if (!LightPropagator.isValidLightSpot(level, pos)) continue;
+                    // Standing against a wall must not seed light on its far side.
+                    if (!LightPropagator.hasLightPath(level,
+                            new Vec3(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5),
+                            new Vec3(eyeX, eyeY, eyeZ))) continue;
 
                     candidates.add(new Candidate(pos, posLevel));
                 }

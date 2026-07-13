@@ -10,11 +10,14 @@ import java.util.Set;
 
 public interface IVSCompat {
     Set<Long> getLoadedShipIds(ServerLevel level);
-    Map<Long, Object> getShipLookup(ServerLevel level);
-    Object getShipObjectManagingPos(ServerLevel level, BlockPos pos);
-    double[] transformShipToWorld(Object shipObj, double x, double y, double z);
-    double[] transformWorldToShip(Object shipObj, double x, double y, double z);
     long getShipId(Object shipObj);
-    boolean isPosInShipBounds(Object shipObj, BlockPos pos);
+    double[] transformShipToWorld(Object shipObj, double x, double y, double z);
     List<Object> getShipsIntersecting(ServerLevel level, AABB aabb);
+
+    /**
+     * Every light-emitting block on the ship, in shipyard coordinates, mapped to
+     * its light emission. Used to project the ship's lights into the world as
+     * dynamic light sources; nothing is ever placed inside the shipyard.
+     */
+    Map<BlockPos, Integer> getShipLightEmitters(ServerLevel level, Object shipObj);
 }
