@@ -52,9 +52,10 @@ public class LightLogic {
         int maxSources = config.max_light_sources;
 
         Map<BlockPos, LightCluster> worldClusters = new HashMap<>();
-        // Ultra smoothing sources, keyed by exact block position: each entry is one
-        // block of the sub-block interpolation and must never be grid-merged or
-        // position-averaged like regular clusters.
+        // Exact-position sources, keyed by their block position: ultra-smoothing
+        // interpolation blocks and shipyard projections. These are pre-validated
+        // single-block lights and must never be grid-merged or position-averaged
+        // like regular clusters.
         Map<BlockPos, LightCluster> worldUltraClusters = new HashMap<>();
         int sourceCount = 0;
 
@@ -73,7 +74,7 @@ public class LightLogic {
             if (sourceCount >= maxSources) break;
             if (player.isSpectator()) continue;
 
-            processEntity(player, level, worldClusters, worldUltraClusters, processedIds, config, gameState);
+            processEntity(player, level, worldClusters, worldUltraClusters, processedIds, config, useVs, gameState, vsCompat);
             sourceCount++;
         }
 
@@ -89,7 +90,7 @@ public class LightLogic {
                     if (entity instanceof Player) continue;
                     if (!shouldCheckEntity(entity, config)) continue;
 
-                    if (processEntity(entity, level, worldClusters, worldUltraClusters, processedIds, config, gameState)) {
+                    if (processEntity(entity, level, worldClusters, worldUltraClusters, processedIds, config, useVs, gameState, vsCompat)) {
                         sourceCount++;
                     }
                 }
@@ -103,6 +104,10 @@ public class LightLogic {
         // world coordinates and were handled above like any other entity — nothing
         // is ever placed inside the shipyard.
         if (useVs) {
+            // The mod's own shipyard-projected light blocks emit light too and would
+            // otherwise be scanned as ship lamps, echoing a held torch back into the
+            // world for up to a rescan cycle after the holder leaves.
+            Set<BlockPos> ownPlacedLights = LivelyLightingData.get(level).getPlacedLights(dimension);
             Set<Long> scannedShips = new HashSet<>();
             for (Player player : level.players()) {
                 AABB searchBox = player.getBoundingBox().inflate(viewDistance);
@@ -123,6 +128,7 @@ public class LightLogic {
                         sourceCount++;
 
                         BlockPos shipPos = emitter.getKey();
+                        if (ownPlacedLights.contains(shipPos)) continue;
                         int emission = emitter.getValue();
                         double[] worldPos = vsCompat.transformShipToWorld(ship,
                                 shipPos.getX() + 0.5, shipPos.getY() + 0.5, shipPos.getZ() + 0.5);
@@ -188,7 +194,7 @@ public class LightLogic {
         LightPropagator.applyChanges(level, worldCurrentLights, worldPlayerLights, worldDesiredLights, worldDesiredPlayerLights, worldDesiredCarry, smoothing, smoothingAllEntities, decayRate, fadeInRate);
     }
 
-    private static boolean processEntity(Entity entity, ServerLevel level, Map<BlockPos, LightCluster> worldClusters, Map<BlockPos, LightCluster> worldUltraClusters, Set<Integer> processedIds, LivelyConfig config, LightGameState gameState) {
+    private static boolean processEntity(Entity entity, ServerLevel level, Map<BlockPos, LightCluster> worldClusters, Map<BlockPos, LightCluster> worldUltraClusters, Set<Integer> processedIds, LivelyConfig config, boolean useVs, LightGameState gameState, IVSCompat vsCompat) {
         if (!processedIds.add(entity.getId())) return false;
 
         LivelyLightingData data = LivelyLightingData.get(level);
@@ -217,7 +223,7 @@ public class LightLogic {
         Integer forcedLevel = data.getForcedLevel(entity.getUUID());
         if (forcedLevel != null) {
             LightData lightData = new LightData(forcedLevel, false, Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
-            processLightData(entity, level, worldClusters, worldUltraClusters, config, lightData, "forced", gameState, velocity);
+            processLightData(entity, level, worldClusters, worldUltraClusters, config, useVs, lightData, "forced", gameState, vsCompat, velocity);
             return true;
         }
 
@@ -227,19 +233,19 @@ public class LightLogic {
             
             // Main Hand
             LightData main = LightCalculator.getItemLightLevel(living.getMainHandItem(), entity, level, config);
-            processLightData(entity, level, worldClusters, worldUltraClusters, config, main, "mainhand", gameState, velocity);
+            processLightData(entity, level, worldClusters, worldUltraClusters, config, useVs, main, "mainhand", gameState, vsCompat, velocity);
             if (main.level > 0) foundLight = true;
 
             // Off Hand
             LightData off = LightCalculator.getItemLightLevel(living.getOffhandItem(), entity, level, config);
-            processLightData(entity, level, worldClusters, worldUltraClusters, config, off, "offhand", gameState, velocity);
+            processLightData(entity, level, worldClusters, worldUltraClusters, config, useVs, off, "offhand", gameState, vsCompat, velocity);
             if (off.level > 0) foundLight = true;
 
             // Armor
             for (net.minecraft.world.entity.EquipmentSlot slot : net.minecraft.world.entity.EquipmentSlot.values()) {
                 if (slot.getType() == net.minecraft.world.entity.EquipmentSlot.Type.ARMOR) {
                     LightData armor = LightCalculator.getItemLightLevel(living.getItemBySlot(slot), entity, level, config);
-                    processLightData(entity, level, worldClusters, worldUltraClusters, config, armor, slot.getName(), gameState, velocity);
+                    processLightData(entity, level, worldClusters, worldUltraClusters, config, useVs, armor, slot.getName(), gameState, vsCompat, velocity);
                     if (armor.level > 0) foundLight = true;
                 }
             }
@@ -254,13 +260,13 @@ public class LightLogic {
                 } else {
                     blockLight = new LightData(0, false, Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
                 }
-                processLightData(entity, level, worldClusters, worldUltraClusters, config, blockLight, "carried_block", gameState, velocity);
+                processLightData(entity, level, worldClusters, worldUltraClusters, config, useVs, blockLight, "carried_block", gameState, vsCompat, velocity);
                 if (blockLight.level > 0) foundLight = true;
             }
 
             // Check other sources (fire, glow effect, etc)
             LightData entityLight = LightCalculator.getEntityLightLevel(entity, level, config);
-            processLightData(entity, level, worldClusters, worldUltraClusters, config, entityLight, "body", gameState, velocity);
+            processLightData(entity, level, worldClusters, worldUltraClusters, config, useVs, entityLight, "body", gameState, vsCompat, velocity);
             if (entityLight.level > 0) foundLight = true;
             
             return foundLight;
@@ -270,7 +276,7 @@ public class LightLogic {
             LightData lastData = getEntityLitState(level, entity.getId(), "combined", gameState);
             
             if (lightData.level > 0 || (lastData != null && lastData.level > 0)) {
-                processLightData(entity, level, worldClusters, worldUltraClusters, config, lightData, "combined", gameState, velocity);
+                processLightData(entity, level, worldClusters, worldUltraClusters, config, useVs, lightData, "combined", gameState, vsCompat, velocity);
                 return lightData.level > 0;
             }
             return false;
@@ -300,7 +306,7 @@ public class LightLogic {
         }
     }
     
-    private static void processLightData(Entity entity, ServerLevel level, Map<BlockPos, LightCluster> worldClusters, Map<BlockPos, LightCluster> worldUltraClusters, LivelyConfig config, LightData lightData, String sourceId, LightGameState gameState, Vec3 velocity) {
+    private static void processLightData(Entity entity, ServerLevel level, Map<BlockPos, LightCluster> worldClusters, Map<BlockPos, LightCluster> worldUltraClusters, LivelyConfig config, boolean useVs, LightData lightData, String sourceId, LightGameState gameState, IVSCompat vsCompat, Vec3 velocity) {
         LivelyLightingData worldData = LivelyLightingData.get(level);
         int lightLevel = lightData.level;
         List<ParticleType<?>> particles = lightData.particles;
@@ -408,9 +414,15 @@ public class LightLogic {
         }
 
         if (lightLevel > 0) {
-            // Entities on Valkyrien Skies ships have true world coordinates, so
-            // they take the same world paths below — light blocks are only ever
-            // placed in the static world, never inside a shipyard.
+            // Valkyrien Skies: a held light near (or on) a ship also lights the
+            // ship's own blocks by anchoring a light block in the shipyard, since
+            // ship blocks take their light from there. Validated and distance-dimmed
+            // in addShipyardProjection; the block itself lives in the normal world
+            // lifecycle, so cleanup can never be missed.
+            if (useVs) {
+                addShipyardProjection(level, entity, lightLevel, worldUltraClusters, vsCompat);
+            }
+
             if (smoothingActive && config.experimental.ultra_smoothing) {
                 // Ultra smoothing: no anchor block at all — the entity is treated as
                 // a continuous point light and every nearby block gets its exact
@@ -524,6 +536,97 @@ public class LightLogic {
                 }
             }
         }
+    }
+
+    /**
+     * Projects a held/entity light onto nearby Valkyrien Skies ships: the entity's
+     * eye is transformed into shipyard space and a light block is anchored at the
+     * nearest valid shipyard spot, dimmed by its distance to the transformed eye —
+     * so a ship's hull and deck brighten naturally as a light source approaches.
+     *
+     * Safety rails (each one guards against the old runaway-expansion bug class):
+     * the anchor must be ATTACHED to the ship — face-adjacent to a genuine ship
+     * block (non-air and not a light block, so anchors can never chain outward
+     * off each other) — keeping any AABB growth bounded to one block beyond real
+     * structure; it must have a clear light path to the transformed eye in
+     * shipyard space, so a closed hull never lights up inside from a torch
+     * outside; and the block itself goes through the exact-position cluster map
+     * into the ordinary world lifecycle (shipyard coordinates are plain positions
+     * in the same dimension), so fade-out, persistence records and the chunk-load
+     * sweep all apply unchanged. The ship's block bounds are only used to centre
+     * the search on the hull surface nearest the holder — the air above a deck or
+     * beside the hull sits at or just outside those bounds, never inside them.
+     */
+    private static void addShipyardProjection(ServerLevel level, Entity entity, int lightLevel, Map<BlockPos, LightCluster> exactClusters, IVSCompat vsCompat) {
+        AABB reach = entity.getBoundingBox().inflate(lightLevel);
+        List<Object> ships = vsCompat.getShipsIntersecting(level, reach);
+        if (ships.isEmpty()) return;
+
+        boolean isPlayer = entity instanceof Player;
+
+        for (Object ship : ships) {
+            int[] bounds = vsCompat.getShipBlockBounds(ship);
+            if (bounds == null) continue;
+
+            double[] shipEye = vsCompat.transformWorldToShip(ship, entity.getX(), entity.getEyeY(), entity.getZ());
+            Vec3 shipEyeVec = new Vec3(shipEye[0], shipEye[1], shipEye[2]);
+
+            // Search around the closest in-bounds point to the transformed eye —
+            // for an entity on deck that's roughly its own position, for one
+            // standing away from the ship it's the nearest hull surface.
+            BlockPos searchCenter = new BlockPos(
+                    (int) Math.floor(Math.max(bounds[0], Math.min(bounds[3], shipEye[0]))),
+                    (int) Math.floor(Math.max(bounds[1], Math.min(bounds[4], shipEye[1]))),
+                    (int) Math.floor(Math.max(bounds[2], Math.min(bounds[5], shipEye[2]))));
+
+            List<BlockPos> candidates = new ArrayList<>();
+            for (int dx = -3; dx <= 3; dx++) {
+                for (int dy = -3; dy <= 3; dy++) {
+                    for (int dz = -3; dz <= 3; dz++) {
+                        BlockPos pos = searchCenter.offset(dx, dy, dz);
+                        if (!LightPropagator.isValidLightSpot(level, pos)) continue;
+                        if (!isAttachedToShipStructure(level, pos)) continue;
+                        candidates.add(pos.immutable());
+                    }
+                }
+            }
+
+            candidates.sort(Comparator.comparingDouble(
+                    pos -> pos.distToCenterSqr(shipEye[0], shipEye[1], shipEye[2])));
+
+            for (BlockPos pos : candidates) {
+                if (!LightPropagator.hasLightPath(level,
+                        new Vec3(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5), shipEyeVec)) {
+                    continue;
+                }
+
+                double dist = Math.sqrt(pos.distToCenterSqr(shipEye[0], shipEye[1], shipEye[2]));
+                int dimmed = lightLevel - (int) Math.floor(Math.max(0, dist - 1.0));
+                if (dimmed > 0) {
+                    exactClusters.computeIfAbsent(pos, k -> new LightCluster())
+                                 .add(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, dimmed, isPlayer, dimmed);
+                }
+                break;
+            }
+        }
+    }
+
+    /**
+     * Whether a shipyard position touches the ship's actual structure: at least
+     * one face neighbor is a real block. Light blocks don't count, so a projected
+     * anchor can never justify the next anchor and creep outward off the hull —
+     * shipyard placement stays bounded to one block beyond genuine ship blocks.
+     */
+    private static boolean isAttachedToShipStructure(ServerLevel level, BlockPos pos) {
+        for (net.minecraft.core.Direction dir : net.minecraft.core.Direction.values()) {
+            BlockPos neighbor = pos.relative(dir);
+            if (!level.isLoaded(neighbor)) continue;
+            net.minecraft.world.level.block.state.BlockState state = level.getBlockState(neighbor);
+            if (!state.isAir() && !state.is(net.minecraft.world.level.block.Blocks.LIGHT)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

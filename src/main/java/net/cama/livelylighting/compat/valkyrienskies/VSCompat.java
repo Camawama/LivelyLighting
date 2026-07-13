@@ -41,6 +41,27 @@ public class VSCompat implements IVSCompat {
     }
 
     @Override
+    public double[] transformWorldToShip(Object shipObj, double x, double y, double z) {
+        if (shipObj instanceof Ship ship) {
+            Vector3d pos = new Vector3d(x, y, z);
+            ship.getWorldToShip().transformPosition(pos);
+            return new double[]{pos.x, pos.y, pos.z};
+        }
+        return new double[]{x, y, z};
+    }
+
+    @Override
+    public int[] getShipBlockBounds(Object shipObj) {
+        if (shipObj instanceof Ship ship) {
+            AABBic aabb = ship.getShipAABB();
+            if (aabb != null) {
+                return new int[]{aabb.minX(), aabb.minY(), aabb.minZ(), aabb.maxX(), aabb.maxY(), aabb.maxZ()};
+            }
+        }
+        return null;
+    }
+
+    @Override
     public List<Object> getShipsIntersecting(ServerLevel level, AABB aabb) {
         List<Object> list = new ArrayList<>();
         for (Ship ship : VSGameUtilsKt.getShipsIntersecting(level, aabb)) {

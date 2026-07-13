@@ -12,7 +12,16 @@ public interface IVSCompat {
     Set<Long> getLoadedShipIds(ServerLevel level);
     long getShipId(Object shipObj);
     double[] transformShipToWorld(Object shipObj, double x, double y, double z);
+    double[] transformWorldToShip(Object shipObj, double x, double y, double z);
     List<Object> getShipsIntersecting(ServerLevel level, AABB aabb);
+
+    /**
+     * The ship's block bounds in shipyard coordinates as
+     * {minX, minY, minZ, maxX, maxY, maxZ}, or null if unknown. Shipyard light
+     * anchors must stay strictly inside these bounds so a placed block can never
+     * extend the ship's AABB (the old runaway-expansion bug).
+     */
+    int[] getShipBlockBounds(Object shipObj);
 
     /**
      * Every light-emitting block on the ship, in shipyard coordinates, mapped to
