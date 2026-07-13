@@ -1,6 +1,7 @@
 package net.cama.livelylighting.dynamiclighting.engine;
 
 import net.cama.livelylighting.compat.valkyrienskies.IVSCompat;
+import net.cama.livelylighting.data.LivelyLightingData;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
@@ -15,7 +16,7 @@ import java.util.*;
 
 public class LightPropagator {
 
-    public static void calculateLightField(ServerLevel level, Map<BlockPos, LightCluster> clusters, Map<BlockPos, Integer> desiredLights, Set<BlockPos> desiredPlayerLights, boolean smoothing, boolean clusterGrowing, int maxRadius) {
+    public static void calculateLightField(ServerLevel level, Map<BlockPos, LightCluster> clusters, Map<BlockPos, Integer> desiredLights, Set<BlockPos> desiredPlayerLights, Map<BlockPos, Integer> desiredCarry, boolean smoothing, boolean clusterGrowing, int maxRadius) {
         for (LightCluster cluster : clusters.values()) {
             cluster.normalize();
 
@@ -24,15 +25,25 @@ public class LightPropagator {
                 strength = cluster.maxLightLevel;
             }
 
+            // A radius-1 pass for strength <= 15 can never place anything (neighbors
+            // always lose to the naturalLevel check below), so the BFS only runs for
+            // overgrown clusters. Ordinary sources take the cheap single-block path.
             int radius = 0;
             if (strength > 15) {
                 radius = (int) Math.ceil(strength - 15);
                 radius = Math.min(radius, maxRadius);
-            } else if (smoothing) {
-                radius = 1;
             }
 
             BlockPos centerPos = BlockPos.containing(cluster.x, cluster.y, cluster.z);
+
+            // A merged cluster's centroid is an average of its sources and can land
+            // inside a wall between them; placement there fails every tick and the
+            // light of all contributing entities vanishes. Snap to the nearest spot
+            // that can actually host a light block.
+            if (!isValidLightSpot(level, centerPos)) {
+                BlockPos snapped = findValidLightPos(level, centerPos, centerPos, 3);
+                if (snapped != null) centerPos = snapped;
+            }
 
             if (radius == 0) {
                 int levelAtTarget = Math.min(15, (int)strength);
@@ -43,6 +54,9 @@ public class LightPropagator {
                         if (cluster.isPlayer) {
                             desiredPlayerLights.add(centerPos);
                         }
+                    }
+                    if (cluster.carryLevel > 0) {
+                        desiredCarry.merge(centerPos, cluster.carryLevel, Integer::max);
                     }
                 }
                 continue;
@@ -89,6 +103,9 @@ public class LightPropagator {
                                     desiredPlayerLights.add(currentPos);
                                 }
                             }
+                            if (cluster.carryLevel > 0) {
+                                desiredCarry.merge(currentPos, cluster.carryLevel, Integer::max);
+                            }
                         }
                     } else {
                         int existing = desiredLights.getOrDefault(currentPos, 0);
@@ -97,6 +114,9 @@ public class LightPropagator {
                             if (cluster.isPlayer) {
                                 desiredPlayerLights.add(currentPos);
                             }
+                        }
+                        if (cluster.carryLevel > 0) {
+                            desiredCarry.merge(currentPos, cluster.carryLevel, Integer::max);
                         }
                     }
 
@@ -116,7 +136,7 @@ public class LightPropagator {
         }
     }
     
-    public static void applyChanges(ServerLevel level, Map<BlockPos, Integer> currentLights, Set<BlockPos> currentPlayerLights, Map<BlockPos, Integer> desiredLights, Set<BlockPos> desiredPlayerLights, boolean smoothing, boolean smoothingAllEntities, int decayRate, int fadeInRate, Object ship, IVSCompat vsCompat) {
+    public static void applyChanges(ServerLevel level, Map<BlockPos, Integer> currentLights, Set<BlockPos> currentPlayerLights, Map<BlockPos, Integer> desiredLights, Set<BlockPos> desiredPlayerLights, Map<BlockPos, Integer> desiredCarry, boolean smoothing, boolean smoothingAllEntities, int decayRate, int fadeInRate, Object ship, IVSCompat vsCompat) {
         Map<BlockPos, Integer> nextCurrentLights = new HashMap<>();
         Set<BlockPos> nextCurrentPlayerLights = new HashSet<>();
 
@@ -149,11 +169,14 @@ public class LightPropagator {
                 // Case 1: New light. Fade in from the light this position already
                 // receives, never from zero: block light combines by max, so fading
                 // in from zero would visibly dim the area before brightening it.
-                // For a moving source the new anchor already receives desired-1 from
-                // the old block, making the handoff a single +1 step; for a fresh
-                // ignition the ambient is 0 and it fades in from darkness as before.
+                // The carried level (what the contributing source's block reached
+                // last tick) also counts as a floor: an established source keeps its
+                // brightness while moving, no matter how fast — only fresh ignitions
+                // actually fade in. Without it, a source moving more blocks per tick
+                // than fade_in_rate outruns its own ambient light and dims toward
+                // darkness, which killed both the light and its trail at high speed.
                 if (smoothing && (smoothingAllEntities || isDesiredPlayerLight)) {
-                    int ambient = shadowLevel(pos, currentLights);
+                    int ambient = Math.max(shadowLevel(pos, currentLights), desiredCarry.getOrDefault(pos, 0));
                     newLevel = Math.min(desiredLevel, ambient + fadeInRate);
                 } else {
                     newLevel = desiredLevel;
@@ -162,7 +185,8 @@ public class LightPropagator {
                 // Case 2: Existing light (update)
                 if (smoothing && (smoothingAllEntities || wasPlayerLight || isDesiredPlayerLight)) {
                     if (desiredLevel > currentLevel) {
-                        newLevel = Math.min(desiredLevel, currentLevel + fadeInRate);
+                        int floor = Math.max(currentLevel, desiredCarry.getOrDefault(pos, 0));
+                        newLevel = Math.min(desiredLevel, floor + fadeInRate);
                     } else { // desiredLevel <= currentLevel
                         newLevel = Math.max(desiredLevel, currentLevel - decayRate);
                     }
@@ -307,18 +331,26 @@ public class LightPropagator {
         int flags = Block.UPDATE_CLIENTS;
 
         if (state.is(Blocks.LIGHT)) {
+            // Never adopt a light block the mod didn't place (manually placed ones,
+            // e.g. Colorful Lighting wildcard emitters) — adopting it would let the
+            // fade logic overwrite its level and eventually delete it.
+            if (!isPlacedByMod(level, pos)) {
+                return false;
+            }
             int currentLevel = state.getValue(LightBlock.LEVEL);
             if (currentLevel != lightLevel) {
                 level.setBlock(pos, state.setValue(LightBlock.LEVEL, lightLevel), flags);
             }
             return true;
         }
-        
+
         if (state.isAir()) {
             level.setBlock(pos, Blocks.LIGHT.defaultBlockState().setValue(LightBlock.LEVEL, lightLevel), flags);
+            LivelyLightingData.get(level).addPlacedLight(level.dimension(), pos);
             return true;
         } else if (state.getFluidState().isSource() && state.is(Blocks.WATER)) {
             level.setBlock(pos, Blocks.LIGHT.defaultBlockState().setValue(LightBlock.LEVEL, lightLevel).setValue(LightBlock.WATERLOGGED, true), flags);
+            LivelyLightingData.get(level).addPlacedLight(level.dimension(), pos);
             return true;
         }
 
@@ -326,6 +358,8 @@ public class LightPropagator {
     }
 
     public static void removeLight(ServerLevel level, BlockPos pos) {
+        // Not loaded: keep the persisted record so the chunk-load sweep can clean
+        // the orphaned block when the chunk comes back.
         if (!level.isLoaded(pos)) return;
         BlockState state = level.getBlockState(pos);
         int flags = Block.UPDATE_CLIENTS;
@@ -337,6 +371,7 @@ public class LightPropagator {
                 level.setBlock(pos, Blocks.AIR.defaultBlockState(), flags);
             }
         }
+        LivelyLightingData.get(level).removePlacedLight(level.dimension(), pos);
     }
     
     public static BlockPos findValidLightPos(Level level, BlockPos eyePos, BlockPos feetPos, int radius) {
@@ -370,6 +405,15 @@ public class LightPropagator {
     public static boolean isValidLightSpot(Level level, BlockPos pos) {
         if (!level.isLoaded(pos)) return false;
         BlockState state = level.getBlockState(pos);
-        return state.isAir() || (state.is(Blocks.WATER) && state.getFluidState().isSource()) || state.is(Blocks.LIGHT);
+        if (state.is(Blocks.LIGHT)) {
+            // A light block is only a valid anchor if the mod placed it; foreign
+            // ones (manually placed, other mods) must be left untouched.
+            return level instanceof ServerLevel serverLevel && isPlacedByMod(serverLevel, pos);
+        }
+        return state.isAir() || (state.is(Blocks.WATER) && state.getFluidState().isSource());
+    }
+
+    private static boolean isPlacedByMod(ServerLevel level, BlockPos pos) {
+        return LivelyLightingData.get(level).getPlacedLights(level.dimension()).contains(pos);
     }
 }

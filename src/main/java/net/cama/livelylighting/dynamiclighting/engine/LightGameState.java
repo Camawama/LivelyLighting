@@ -3,6 +3,7 @@ package net.cama.livelylighting.dynamiclighting.engine;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.Vec3;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -25,12 +26,20 @@ public class LightGameState {
     // Maps Dimension -> (EntityID -> (SourceID -> LightData))
     public final Map<ResourceKey<Level>, Map<Integer, Map<String, LightData>>> entityLitState = new HashMap<>();
     
-    // Maps EntityID -> Last Sound Time (Game Time)
-    public final Map<Integer, Long> lastSoundTime = new HashMap<>();
+    // All keyed by dimension first: per-level cleanup must only touch its own
+    // dimension's entries — level.getEntity(id) returns null for entities that are
+    // alive in another dimension, so a flat map would get wrongly purged.
 
-    // Maps EntityID -> (SourceID -> LastBlockPos)
-    public final Map<Integer, Map<String, BlockPos>> lastSourcePos = new HashMap<>();
-    
+    // Maps Dimension -> (EntityID -> Last Sound Time (Game Time))
+    public final Map<ResourceKey<Level>, Map<Integer, Long>> lastSoundTime = new HashMap<>();
+
+    // Maps Dimension -> (EntityID -> (SourceID -> LastBlockPos))
+    public final Map<ResourceKey<Level>, Map<Integer, Map<String, BlockPos>>> lastSourcePos = new HashMap<>();
+
+    // Maps Dimension -> (EntityID -> eye position last time the entity was processed);
+    // used to derive velocity for predictive light anchoring.
+    public final Map<ResourceKey<Level>, Map<Integer, Vec3>> lastEntityPos = new HashMap<>();
+
     public void clear() {
         levelLights.clear();
         playerLights.clear();
@@ -39,5 +48,6 @@ public class LightGameState {
         entityLitState.clear();
         lastSoundTime.clear();
         lastSourcePos.clear();
+        lastEntityPos.clear();
     }
 }

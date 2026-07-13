@@ -101,17 +101,18 @@ public class LivelyLightingCommand {
     private static int toggleSound(CommandContext<CommandSourceStack> context, boolean enable) throws CommandSyntaxException {
         Entity entity = context.getSource().getEntityOrException();
         if (entity instanceof Player) {
-            boolean currentlyDisabled = LightManager.arePlayerSoundsDisabled(entity.getUUID());
+            LivelyLightingData data = LivelyLightingData.get((ServerLevel) entity.level());
+            boolean currentlyDisabled = data.arePlayerSoundsDisabled(entity.getUUID());
             if (enable) {
                 if (currentlyDisabled) {
-                    LightManager.togglePlayerSounds(entity.getUUID());
+                    data.togglePlayerSounds(entity.getUUID());
                     context.getSource().sendSuccess(() -> Component.literal("Dynamic lighting sounds enabled."), true);
                 } else {
                     context.getSource().sendSuccess(() -> Component.literal("Dynamic lighting sounds are already enabled."), false);
                 }
             } else {
                 if (!currentlyDisabled) {
-                    LightManager.togglePlayerSounds(entity.getUUID());
+                    data.togglePlayerSounds(entity.getUUID());
                     context.getSource().sendSuccess(() -> Component.literal("Dynamic lighting sounds disabled."), true);
                 } else {
                     context.getSource().sendSuccess(() -> Component.literal("Dynamic lighting sounds are already disabled."), false);

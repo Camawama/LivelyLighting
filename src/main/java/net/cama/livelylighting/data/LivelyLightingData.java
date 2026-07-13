@@ -1,11 +1,16 @@
 package net.cama.livelylighting.data;
 
+import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.LongArrayTag;
 import net.minecraft.nbt.Tag;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.saveddata.SavedData;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -17,6 +22,12 @@ public class LivelyLightingData extends SavedData {
 
     private final Set<UUID> disabledEntities = new HashSet<>();
     private final Map<UUID, Integer> forcedLightLevels = new HashMap<>();
+    private final Set<UUID> soundDisabledPlayers = new HashSet<>();
+
+    // Every light block position the mod has placed, per dimension id. Survives
+    // restarts and crashes so orphaned light blocks (chunk unloaded mid-fade,
+    // server killed, etc.) can be swept when their chunk next loads.
+    private final Map<String, Set<BlockPos>> placedLights = new HashMap<>();
 
     public static LivelyLightingData get(ServerLevel level) {
         return level.getServer().overworld().getDataStorage().computeIfAbsent(LivelyLightingData::load, LivelyLightingData::new, DATA_NAME);
@@ -49,6 +60,34 @@ public class LivelyLightingData extends SavedData {
         return forcedLightLevels.get(uuid);
     }
 
+    public boolean arePlayerSoundsDisabled(UUID uuid) {
+        return soundDisabledPlayers.contains(uuid);
+    }
+
+    public void togglePlayerSounds(UUID uuid) {
+        if (!soundDisabledPlayers.remove(uuid)) {
+            soundDisabledPlayers.add(uuid);
+        }
+        setDirty();
+    }
+
+    public void addPlacedLight(ResourceKey<Level> dimension, BlockPos pos) {
+        if (placedLights.computeIfAbsent(dimension.location().toString(), k -> new HashSet<>()).add(pos.immutable())) {
+            setDirty();
+        }
+    }
+
+    public void removePlacedLight(ResourceKey<Level> dimension, BlockPos pos) {
+        Set<BlockPos> positions = placedLights.get(dimension.location().toString());
+        if (positions != null && positions.remove(pos)) {
+            setDirty();
+        }
+    }
+
+    public Set<BlockPos> getPlacedLights(ResourceKey<Level> dimension) {
+        return placedLights.getOrDefault(dimension.location().toString(), Collections.emptySet());
+    }
+
     public static LivelyLightingData load(CompoundTag tag) {
         LivelyLightingData data = new LivelyLightingData();
         
@@ -63,7 +102,22 @@ public class LivelyLightingData extends SavedData {
             CompoundTag entry = forcedList.getCompound(i);
             data.forcedLightLevels.put(entry.getUUID("UUID"), entry.getInt("Level"));
         }
-        
+
+        ListTag soundDisabledList = tag.getList("SoundDisabledPlayers", Tag.TAG_COMPOUND);
+        for (int i = 0; i < soundDisabledList.size(); i++) {
+            CompoundTag entry = soundDisabledList.getCompound(i);
+            data.soundDisabledPlayers.add(entry.getUUID("UUID"));
+        }
+
+        CompoundTag placedTag = tag.getCompound("PlacedLights");
+        for (String dimensionId : placedTag.getAllKeys()) {
+            Set<BlockPos> positions = new HashSet<>();
+            for (long packed : placedTag.getLongArray(dimensionId)) {
+                positions.add(BlockPos.of(packed));
+            }
+            data.placedLights.put(dimensionId, positions);
+        }
+
         return data;
     }
 
@@ -85,7 +139,27 @@ public class LivelyLightingData extends SavedData {
             forcedList.add(e);
         }
         tag.put("ForcedEntities", forcedList);
-        
+
+        ListTag soundDisabledList = new ListTag();
+        for (UUID uuid : soundDisabledPlayers) {
+            CompoundTag entry = new CompoundTag();
+            entry.putUUID("UUID", uuid);
+            soundDisabledList.add(entry);
+        }
+        tag.put("SoundDisabledPlayers", soundDisabledList);
+
+        CompoundTag placedTag = new CompoundTag();
+        for (Map.Entry<String, Set<BlockPos>> entry : placedLights.entrySet()) {
+            if (entry.getValue().isEmpty()) continue;
+            long[] packed = new long[entry.getValue().size()];
+            int i = 0;
+            for (BlockPos pos : entry.getValue()) {
+                packed[i++] = pos.asLong();
+            }
+            placedTag.put(entry.getKey(), new LongArrayTag(packed));
+        }
+        tag.put("PlacedLights", placedTag);
+
         return tag;
     }
 }

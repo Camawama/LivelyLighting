@@ -39,7 +39,15 @@ public class LivelyConfig {
     
     public boolean enable_particles = true;
     public boolean enable_sounds = true;
-    
+
+    public boolean smoothing = true;
+    public boolean smoothing_all_entities = false;
+    public int trail_decay_rate = 2;
+    public int fade_in_rate = 2;
+    // Run the light engine every N ticks (1 = every tick). Movement handoffs only
+    // shift light by one level per block, so 2 still looks smooth on busy servers.
+    public int light_update_interval = 1;
+
     public boolean auto_detect_block_light = true;
     public List<String> auto_detect_blacklist = new ArrayList<>(Arrays.asList(
             "minecraft:light"
@@ -50,14 +58,18 @@ public class LivelyConfig {
     public Experimental experimental = new Experimental();
 
     public static class Experimental {
-        public boolean smoothing = false;
-        public boolean smoothing_all_entities = false;
         public boolean cluster_growing = false;
         public double cluster_merge_distance = 6.0;
         public int max_influence_radius = 3;
-        public int trail_decay_rate = 2;
-        public int fade_in_rate = 5;
         public double light_source_spacing = 0.0; // Minimum distance between light updates (0.0 = every block)
+
+        // Legacy fields, migrated to the top level on load. Boxed so we can tell
+        // "present in an old config file" apart from "absent"; Gson drops nulls
+        // on save, so they disappear after the first migration.
+        public Boolean smoothing;
+        public Boolean smoothing_all_entities;
+        public Integer trail_decay_rate;
+        public Integer fade_in_rate;
     }
 
     // Default lists used for generation
@@ -136,8 +148,44 @@ public class LivelyConfig {
                 e.printStackTrace();
                 instance = new LivelyConfig();
             }
+            if (instance == null) {
+                instance = new LivelyConfig();
+            }
+            if (instance.experimental == null) {
+                instance.experimental = new Experimental();
+            }
+            migrateLegacyFields();
         } else {
             instance = new LivelyConfig();
+            save();
+        }
+    }
+
+    // Carry smoothing settings from pre-0.3.2 config files (experimental.*) to the top level.
+    private static void migrateLegacyFields() {
+        Experimental exp = instance.experimental;
+        boolean migrated = false;
+        if (exp.smoothing != null) {
+            instance.smoothing = exp.smoothing;
+            exp.smoothing = null;
+            migrated = true;
+        }
+        if (exp.smoothing_all_entities != null) {
+            instance.smoothing_all_entities = exp.smoothing_all_entities;
+            exp.smoothing_all_entities = null;
+            migrated = true;
+        }
+        if (exp.trail_decay_rate != null) {
+            instance.trail_decay_rate = exp.trail_decay_rate;
+            exp.trail_decay_rate = null;
+            migrated = true;
+        }
+        if (exp.fade_in_rate != null) {
+            instance.fade_in_rate = exp.fade_in_rate;
+            exp.fade_in_rate = null;
+            migrated = true;
+        }
+        if (migrated) {
             save();
         }
     }
