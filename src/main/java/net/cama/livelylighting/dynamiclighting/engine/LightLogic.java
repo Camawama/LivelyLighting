@@ -98,6 +98,11 @@ public class LightLogic {
             if (dimensionState != null) {
                 dimensionState.keySet().removeIf(id -> level.getEntity(id) == null);
             }
+
+            Map<Integer, Map<String, Integer>> dimEstablished = gameState.sourceEstablished.get(dimension);
+            if (dimEstablished != null) {
+                dimEstablished.keySet().removeIf(id -> level.getEntity(id) == null);
+            }
             
             if (useVs) {
                 Set<Long> loadedShipIds = vsCompat.getLoadedShipIds(level);
@@ -117,6 +122,10 @@ public class LightLogic {
             Map<Integer, Vec3> dimLastPos = gameState.lastEntityPos.get(dimension);
             if (dimLastPos != null) {
                 dimLastPos.keySet().removeIf(id -> level.getEntity(id) == null);
+            }
+            Map<Integer, Vec3> dimSmoothedVel = gameState.smoothedVelocity.get(dimension);
+            if (dimSmoothedVel != null) {
+                dimSmoothedVel.keySet().removeIf(id -> level.getEntity(id) == null);
             }
         }
 
@@ -236,7 +245,18 @@ public class LightLogic {
         Vec3 previousPos = gameState.lastEntityPos
                 .computeIfAbsent(level.dimension(), k -> new HashMap<>())
                 .put(entity.getId(), eyePosition);
-        Vec3 velocity = previousPos != null ? eyePosition.subtract(previousPos) : Vec3.ZERO;
+        Vec3 instantVelocity = previousPos != null ? eyePosition.subtract(previousPos) : Vec3.ZERO;
+
+        // Exponentially smoothed: a direction change swings the predictive anchor
+        // lead over a few updates instead of snapping it sideways, which flicked
+        // the anchor to a different block and flashed the light when turning.
+        Map<Integer, Vec3> dimSmoothed = gameState.smoothedVelocity
+                .computeIfAbsent(level.dimension(), k -> new HashMap<>());
+        Vec3 previousSmoothed = dimSmoothed.get(entity.getId());
+        Vec3 velocity = previousSmoothed == null
+                ? instantVelocity
+                : previousSmoothed.scale(0.5).add(instantVelocity.scale(0.5));
+        dimSmoothed.put(entity.getId(), velocity);
 
         // Check for forced light level
         Integer forcedLevel = data.getForcedLevel(entity.getUUID());
@@ -399,6 +419,38 @@ public class LightLogic {
         }
         
         setEntityLitState(level, entity.getId(), sourceId, lightData, gameState);
+
+        boolean smoothingActive = config.smoothing && (config.smoothing_all_entities || entity instanceof Player);
+
+        if (lightLevel > 0) {
+            // The source's established level ramps up at fade_in_rate while it stays
+            // lit, independent of position — so igniting fades in smoothly even while
+            // sprinting, and moving can never restart the fade (a per-block fade-in
+            // compounds at speed > fade_in_rate and dims the light toward darkness).
+            // Once established, a moving source stays at full brightness.
+            // With smoothing off (or not applicable to this entity) the light is
+            // always instant: no ramp, no fades.
+            if (smoothingActive) {
+                Map<String, Integer> established = gameState.sourceEstablished
+                        .computeIfAbsent(level.dimension(), k -> new HashMap<>())
+                        .computeIfAbsent(entity.getId(), k -> new HashMap<>());
+                int establishedLevel = Math.min(lightLevel,
+                        established.getOrDefault(sourceId, 0) + Math.max(1, config.fade_in_rate));
+                established.put(sourceId, establishedLevel);
+                lightLevel = establishedLevel;
+            }
+        } else {
+            Map<Integer, Map<String, Integer>> dimEstablished = gameState.sourceEstablished.get(level.dimension());
+            if (dimEstablished != null) {
+                Map<String, Integer> established = dimEstablished.get(entity.getId());
+                if (established != null) {
+                    established.remove(sourceId);
+                    if (established.isEmpty()) {
+                        dimEstablished.remove(entity.getId());
+                    }
+                }
+            }
+        }
 
         if (lightLevel > 0) {
             Object ship = useVs ? vsCompat.getShipObjectManagingPos(level, entity.blockPosition()) : null;

@@ -206,13 +206,19 @@ public class LightPropagator {
 
             int newLevel = 0;
             if (smoothing && (smoothingAllEntities || wasPlayerLight)) {
+                int shadowNow = shadowLevel(pos, placedThisTick);
+                int faded = currentLevel - decayRate;
+                // Sync with the incoming light: never fade below what the live
+                // sources will provide here once their own fade-in completes.
+                // Fading further and then being re-covered would dip and pulse;
+                // holding at that floor makes the handoff seamless.
+                int shadowTarget = shadowLevel(pos, desiredLights);
+                int held = Math.max(faded, Math.min(currentLevel, shadowTarget));
                 // Invisible handoff: once this block is no brighter than what the
                 // live sources placed this tick propagate to this position, the
                 // vanilla light engine fills in the same brightness the moment it's
-                // gone — remove it now instead of leaving a trail behind a moving source.
-                int shadow = shadowLevel(pos, placedThisTick);
-                int faded = currentLevel - decayRate;
-                newLevel = faded <= shadow ? 0 : faded;
+                // gone — remove it now instead of leaving a redundant block behind.
+                newLevel = held <= shadowNow ? 0 : held;
             }
             calculatedLevels.put(pos, newLevel);
         }

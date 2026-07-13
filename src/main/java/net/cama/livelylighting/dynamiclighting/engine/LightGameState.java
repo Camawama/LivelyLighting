@@ -25,6 +25,12 @@ public class LightGameState {
     
     // Maps Dimension -> (EntityID -> (SourceID -> LightData))
     public final Map<ResourceKey<Level>, Map<Integer, Map<String, LightData>>> entityLitState = new HashMap<>();
+
+    // Maps Dimension -> (EntityID -> (SourceID -> established light level)).
+    // Ramps toward the item's level at fade_in_rate while the source stays lit.
+    // Purely temporal — movement can neither restart nor compound the ignition
+    // fade, which is what makes a velocity-scaled fade-in safe at any speed.
+    public final Map<ResourceKey<Level>, Map<Integer, Map<String, Integer>>> sourceEstablished = new HashMap<>();
     
     // All keyed by dimension first: per-level cleanup must only touch its own
     // dimension's entries — level.getEntity(id) returns null for entities that are
@@ -40,14 +46,22 @@ public class LightGameState {
     // used to derive velocity for predictive light anchoring.
     public final Map<ResourceKey<Level>, Map<Integer, Vec3>> lastEntityPos = new HashMap<>();
 
+    // Maps Dimension -> (EntityID -> exponentially smoothed velocity). The
+    // predictive anchor lead uses this instead of the instantaneous velocity so a
+    // direction change swings the lead over a few updates instead of snapping the
+    // anchor block sideways, which caused visible flashing when turning.
+    public final Map<ResourceKey<Level>, Map<Integer, Vec3>> smoothedVelocity = new HashMap<>();
+
     public void clear() {
         levelLights.clear();
         playerLights.clear();
         shipLights.clear();
         shipPlayerLights.clear();
         entityLitState.clear();
+        sourceEstablished.clear();
         lastSoundTime.clear();
         lastSourcePos.clear();
         lastEntityPos.clear();
+        smoothedVelocity.clear();
     }
 }
