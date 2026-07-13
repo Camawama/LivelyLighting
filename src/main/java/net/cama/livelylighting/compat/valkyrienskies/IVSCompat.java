@@ -16,6 +16,14 @@ public interface IVSCompat {
     List<Object> getShipsIntersecting(ServerLevel level, AABB aabb);
 
     /**
+     * The ship whose shipyard region contains this position, or null for ordinary
+     * world positions. Entities that live at shipyard coordinates (item frames
+     * and other hanging entities mounted on ships) are detected through this so
+     * their light can be projected out into the static world.
+     */
+    Object getShipManagingPos(ServerLevel level, BlockPos pos);
+
+    /**
      * The ship's block bounds in shipyard coordinates as
      * {minX, minY, minZ, maxX, maxY, maxZ}, or null if unknown. Shipyard light
      * anchors must stay strictly inside these bounds so a placed block can never

@@ -416,13 +416,24 @@ public class LightLogic {
         }
 
         if (lightLevel > 0) {
-            // Valkyrien Skies: a held light near (or on) a ship also lights the
-            // ship's own blocks by anchoring a light block in the shipyard, since
-            // ship blocks take their light from there. Validated and distance-dimmed
-            // in addShipyardProjection; the block itself lives in the normal world
-            // lifecycle, so cleanup can never be missed.
+            // Valkyrien Skies. Two mirrored cases:
+            // - An entity that lives at shipyard coordinates (item frames and other
+            //   hanging entities mounted on ship blocks): the normal world path
+            //   below already lights the ship around it, so project its light OUT
+            //   into the static world at the ship-transformed position.
+            // - An ordinary world entity (players and mobs on or near ships have
+            //   true world coordinates): anchor a light block IN the shipyard so
+            //   the ship's own blocks light up; see addShipyardProjection.
             if (useVs) {
-                addShipyardProjection(level, entity, lightLevel, worldUltraClusters, vsCompat);
+                Object managingShip = vsCompat.getShipManagingPos(level, entity.blockPosition());
+                if (managingShip != null) {
+                    double[] worldEye = vsCompat.transformShipToWorld(managingShip,
+                            entity.getX(), entity.getEyeY(), entity.getZ());
+                    addWorldProjection(level, new Vec3(worldEye[0], worldEye[1], worldEye[2]),
+                            lightLevel, entity instanceof Player, worldUltraClusters);
+                } else {
+                    addShipyardProjection(level, entity, lightLevel, worldUltraClusters, vsCompat);
+                }
             }
 
             if (smoothingActive && config.experimental.ultra_smoothing) {
@@ -610,6 +621,48 @@ public class LightLogic {
                 }
                 break;
             }
+        }
+    }
+
+    /**
+     * The ship→world mirror of {@link #addShipyardProjection}: places a world
+     * light at the ship-transformed position of a shipyard-resident source (an
+     * item frame mounted on a ship, for example), so its light appears to shine
+     * off the ship into the static world. The world space there is ordinarily
+     * empty air co-located with the ship's visuals; no attachment rule is needed
+     * since world placement can't grow anything, but the light path check keeps
+     * it from seeding light inside overlapping world terrain.
+     */
+    private static void addWorldProjection(ServerLevel level, Vec3 worldEye, int lightLevel, boolean isPlayer, Map<BlockPos, LightCluster> exactClusters) {
+        BlockPos center = BlockPos.containing(worldEye);
+
+        List<BlockPos> candidates = new ArrayList<>();
+        for (int dx = -2; dx <= 2; dx++) {
+            for (int dy = -2; dy <= 2; dy++) {
+                for (int dz = -2; dz <= 2; dz++) {
+                    BlockPos pos = center.offset(dx, dy, dz);
+                    if (!LightPropagator.isValidLightSpot(level, pos)) continue;
+                    candidates.add(pos.immutable());
+                }
+            }
+        }
+
+        candidates.sort(Comparator.comparingDouble(
+                pos -> pos.distToCenterSqr(worldEye.x, worldEye.y, worldEye.z)));
+
+        for (BlockPos pos : candidates) {
+            if (!LightPropagator.hasLightPath(level,
+                    new Vec3(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5), worldEye)) {
+                continue;
+            }
+
+            double dist = Math.sqrt(pos.distToCenterSqr(worldEye.x, worldEye.y, worldEye.z));
+            int dimmed = lightLevel - (int) Math.floor(Math.max(0, dist - 1.0));
+            if (dimmed > 0) {
+                exactClusters.computeIfAbsent(pos, k -> new LightCluster())
+                             .add(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, dimmed, isPlayer, dimmed);
+            }
+            break;
         }
     }
 

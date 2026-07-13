@@ -13,6 +13,7 @@ The smoothness update: dynamic lights now hand off between blocks with the minim
 - **Instant equipment response** — swapping a light source in or out of your hands/armor forces an immediate light update, even with a raised update interval.
 - **Persistent sound preferences** — `/ll sound on|off` is now saved with the world and survives restarts.
 - Dynamic light items now emit light from item frames.
+  - Works on Valkyrien Skies ships too: item frames mounted on ship blocks live at shipyard coordinates, so their light is additionally projected out to the ship-transformed world position — a framed lantern on a sailing ship lights the world around it, exactly like a placed lamp.
 
 ### Changed
 

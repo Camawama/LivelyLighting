@@ -64,6 +64,11 @@ public class VSCompat implements IVSCompat {
     }
 
     @Override
+    public Object getShipManagingPos(ServerLevel level, BlockPos pos) {
+        return VSGameUtilsKt.getShipObjectManagingPos(level, pos);
+    }
+
+    @Override
     public List<Object> getShipsIntersecting(ServerLevel level, AABB aabb) {
         List<Object> list = new ArrayList<>();
         for (Ship ship : VSGameUtilsKt.getShipsIntersecting(level, aabb)) {
