@@ -31,8 +31,19 @@ public class LightLogic {
     // How often (in ticks) a ship's blocks are rescanned for light emitters.
     // Between scans the cached emitter list is re-projected every tick, so ship
     // motion stays perfectly current; only placing/breaking a lamp on the ship
-    // waits at most this long to be noticed.
+    // waits at most this long to be noticed. World emitter chunks use the same
+    // interval.
     private static final int SHIP_EMITTER_RESCAN_INTERVAL = 60;
+
+    // How far a world light block's light can plausibly reach a ship.
+    private static final int WORLD_EMITTER_LIGHT_REACH = 15;
+
+    // At most this many world lamps light a single ship, brightest-effective
+    // first, so a ship docked in a heavily lit harbor stays bounded.
+    private static final int MAX_WORLD_EMITTERS_PER_SHIP = 16;
+
+    private static final java.util.function.Predicate<net.minecraft.world.level.block.state.BlockState> LUMINOUS =
+            state -> state.getLightEmission() > 0;
 
     public static void runLightLogic(ServerLevel level, LivelyConfig config, LightGameState gameState, IVSCompat vsCompat, boolean useVs) {
         ResourceKey<Level> dimension = level.dimension();
@@ -145,6 +156,13 @@ public class LightLogic {
                         worldClusters.computeIfAbsent(gridPos, k -> new LightCluster())
                                      .add(worldPos[0], worldPos[1], worldPos[2], emission, false, emission);
                     }
+
+                    // World → ship: genuine world light blocks near the ship light
+                    // its hull as it sails past. World lamps are static, so their
+                    // positions are cached per chunk — shared across ships and
+                    // unaffected by ship movement — and only re-projected through
+                    // the ship's current transform each tick.
+                    projectWorldEmittersOntoShip(level, ship, gameState, ownPlacedLights, worldUltraClusters, vsCompat);
                 }
             }
         }
@@ -165,6 +183,14 @@ public class LightLogic {
                 Set<Long> loadedShipIds = vsCompat.getLoadedShipIds(level);
                 gameState.shipEmitterCache.keySet().removeIf(id -> !loadedShipIds.contains(id));
                 gameState.shipEmitterScanTime.keySet().removeIf(id -> !loadedShipIds.contains(id));
+
+                // Drop world-emitter chunk scans no ship has refreshed recently,
+                // so the cache doesn't accumulate along a ship's whole voyage.
+                Map<Long, LightGameState.EmitterScan> dimEmitterChunks = gameState.worldEmitterCache.get(dimension);
+                if (dimEmitterChunks != null) {
+                    long now = level.getGameTime();
+                    dimEmitterChunks.values().removeIf(scan -> now - scan.time > SHIP_EMITTER_RESCAN_INTERVAL * 5);
+                }
             }
             
             // Cleanup per-entity caches, scoped to this dimension only
@@ -575,52 +601,66 @@ public class LightLogic {
         List<Object> ships = vsCompat.getShipsIntersecting(level, reach);
         if (ships.isEmpty()) return;
 
+        Vec3 eye = new Vec3(entity.getX(), entity.getEyeY(), entity.getZ());
         boolean isPlayer = entity instanceof Player;
 
         for (Object ship : ships) {
-            int[] bounds = vsCompat.getShipBlockBounds(ship);
-            if (bounds == null) continue;
+            projectIntoShipyard(level, ship, eye, lightLevel, isPlayer, exactClusters, vsCompat);
+        }
+    }
 
-            double[] shipEye = vsCompat.transformWorldToShip(ship, entity.getX(), entity.getEyeY(), entity.getZ());
-            Vec3 shipEyeVec = new Vec3(shipEye[0], shipEye[1], shipEye[2]);
+    /**
+     * Anchors one light block in a ship's shipyard for a light source at the given
+     * world position — the shared core of both held-light projection and world
+     * lamp projection. The source is transformed into shipyard space, the search
+     * is centred on the hull surface nearest it, and the anchor must be attached
+     * to genuine ship structure and have a clear shipyard-space light path back to
+     * the source; the placed level is dimmed by the anchor's distance to the
+     * transformed source.
+     */
+    private static void projectIntoShipyard(ServerLevel level, Object ship, Vec3 worldSource, int lightLevel, boolean isPlayer, Map<BlockPos, LightCluster> exactClusters, IVSCompat vsCompat) {
+        int[] bounds = vsCompat.getShipBlockBounds(ship);
+        if (bounds == null) return;
 
-            // Search around the closest in-bounds point to the transformed eye —
-            // for an entity on deck that's roughly its own position, for one
-            // standing away from the ship it's the nearest hull surface.
-            BlockPos searchCenter = new BlockPos(
-                    (int) Math.floor(Math.max(bounds[0], Math.min(bounds[3], shipEye[0]))),
-                    (int) Math.floor(Math.max(bounds[1], Math.min(bounds[4], shipEye[1]))),
-                    (int) Math.floor(Math.max(bounds[2], Math.min(bounds[5], shipEye[2]))));
+        double[] shipSource = vsCompat.transformWorldToShip(ship, worldSource.x, worldSource.y, worldSource.z);
+        Vec3 shipSourceVec = new Vec3(shipSource[0], shipSource[1], shipSource[2]);
 
-            List<BlockPos> candidates = new ArrayList<>();
-            for (int dx = -3; dx <= 3; dx++) {
-                for (int dy = -3; dy <= 3; dy++) {
-                    for (int dz = -3; dz <= 3; dz++) {
-                        BlockPos pos = searchCenter.offset(dx, dy, dz);
-                        if (!LightPropagator.isValidLightSpot(level, pos)) continue;
-                        if (!isAttachedToShipStructure(level, pos)) continue;
-                        candidates.add(pos.immutable());
-                    }
+        // Search around the closest in-bounds point to the transformed source —
+        // for a source on deck that's roughly its own position, for one away
+        // from the ship it's the nearest hull surface.
+        BlockPos searchCenter = new BlockPos(
+                (int) Math.floor(Math.max(bounds[0], Math.min(bounds[3], shipSource[0]))),
+                (int) Math.floor(Math.max(bounds[1], Math.min(bounds[4], shipSource[1]))),
+                (int) Math.floor(Math.max(bounds[2], Math.min(bounds[5], shipSource[2]))));
+
+        List<BlockPos> candidates = new ArrayList<>();
+        for (int dx = -3; dx <= 3; dx++) {
+            for (int dy = -3; dy <= 3; dy++) {
+                for (int dz = -3; dz <= 3; dz++) {
+                    BlockPos pos = searchCenter.offset(dx, dy, dz);
+                    if (!LightPropagator.isValidLightSpot(level, pos)) continue;
+                    if (!isAttachedToShipStructure(level, pos)) continue;
+                    candidates.add(pos.immutable());
                 }
             }
+        }
 
-            candidates.sort(Comparator.comparingDouble(
-                    pos -> pos.distToCenterSqr(shipEye[0], shipEye[1], shipEye[2])));
+        candidates.sort(Comparator.comparingDouble(
+                pos -> pos.distToCenterSqr(shipSource[0], shipSource[1], shipSource[2])));
 
-            for (BlockPos pos : candidates) {
-                if (!LightPropagator.hasLightPath(level,
-                        new Vec3(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5), shipEyeVec)) {
-                    continue;
-                }
-
-                double dist = Math.sqrt(pos.distToCenterSqr(shipEye[0], shipEye[1], shipEye[2]));
-                int dimmed = lightLevel - (int) Math.floor(Math.max(0, dist - 1.0));
-                if (dimmed > 0) {
-                    exactClusters.computeIfAbsent(pos, k -> new LightCluster())
-                                 .add(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, dimmed, isPlayer, dimmed);
-                }
-                break;
+        for (BlockPos pos : candidates) {
+            if (!LightPropagator.hasLightPath(level,
+                    new Vec3(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5), shipSourceVec)) {
+                continue;
             }
+
+            double dist = Math.sqrt(pos.distToCenterSqr(shipSource[0], shipSource[1], shipSource[2]));
+            int dimmed = lightLevel - (int) Math.floor(Math.max(0, dist - 1.0));
+            if (dimmed > 0) {
+                exactClusters.computeIfAbsent(pos, k -> new LightCluster())
+                             .add(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, dimmed, isPlayer, dimmed);
+            }
+            break;
         }
     }
 
@@ -664,6 +704,120 @@ public class LightLogic {
             }
             break;
         }
+    }
+
+    /**
+     * Projects the genuine world light blocks within reach of a ship into its
+     * shipyard, so a lamp post lights a passing ship's hull. Emitters come from a
+     * per-chunk cache: world lamps are static, so the cache needs no invalidation
+     * on ship movement and is shared by every ship. Each chunk section is
+     * pre-filtered with a palette-level check (maybeHas), so terrain without any
+     * luminous block state is skipped without reading a single block.
+     */
+    private static void projectWorldEmittersOntoShip(ServerLevel level, Object ship, LightGameState gameState, Set<BlockPos> ownPlacedLights, Map<BlockPos, LightCluster> exactClusters, IVSCompat vsCompat) {
+        double[] worldBounds = vsCompat.getShipWorldBounds(ship);
+        if (worldBounds == null) return;
+
+        double minX = worldBounds[0] - WORLD_EMITTER_LIGHT_REACH;
+        double minZ = worldBounds[2] - WORLD_EMITTER_LIGHT_REACH;
+        double maxX = worldBounds[3] + WORLD_EMITTER_LIGHT_REACH;
+        double maxZ = worldBounds[5] + WORLD_EMITTER_LIGHT_REACH;
+
+        Map<Long, LightGameState.EmitterScan> chunkCache = gameState.worldEmitterCache
+                .computeIfAbsent(level.dimension(), k -> new HashMap<>());
+        long now = level.getGameTime();
+
+        record NearbyEmitter(BlockPos pos, int emission, int effective) {}
+        List<NearbyEmitter> nearby = new ArrayList<>();
+
+        int minChunkX = ((int) Math.floor(minX)) >> 4;
+        int maxChunkX = ((int) Math.floor(maxX)) >> 4;
+        int minChunkZ = ((int) Math.floor(minZ)) >> 4;
+        int maxChunkZ = ((int) Math.floor(maxZ)) >> 4;
+
+        for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
+            for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++) {
+                long chunkKey = net.minecraft.world.level.ChunkPos.asLong(chunkX, chunkZ);
+                LightGameState.EmitterScan scan = chunkCache.get(chunkKey);
+                if (scan == null || now - scan.time >= SHIP_EMITTER_RESCAN_INTERVAL) {
+                    Map<BlockPos, Integer> found = scanChunkForWorldEmitters(level, chunkX, chunkZ, ownPlacedLights);
+                    if (found != null) {
+                        scan = new LightGameState.EmitterScan(now, found);
+                        chunkCache.put(chunkKey, scan);
+                    }
+                }
+                if (scan == null) continue;
+
+                for (Map.Entry<BlockPos, Integer> entry : scan.emitters.entrySet()) {
+                    BlockPos pos = entry.getKey();
+                    int emission = entry.getValue();
+
+                    // Distance from the lamp to the ship's world box decides both
+                    // the cutoff and the ranking; the exact per-anchor dimming
+                    // happens in projectIntoShipyard.
+                    double dx = Math.max(0, Math.max(worldBounds[0] - (pos.getX() + 0.5), (pos.getX() + 0.5) - worldBounds[3]));
+                    double dy = Math.max(0, Math.max(worldBounds[1] - (pos.getY() + 0.5), (pos.getY() + 0.5) - worldBounds[4]));
+                    double dz = Math.max(0, Math.max(worldBounds[2] - (pos.getZ() + 0.5), (pos.getZ() + 0.5) - worldBounds[5]));
+                    double dist = dx + dy + dz;
+                    int effective = emission - (int) Math.floor(Math.max(0, dist - 1.0));
+                    if (effective <= 0) continue;
+
+                    nearby.add(new NearbyEmitter(pos, emission, effective));
+                }
+            }
+        }
+
+        if (nearby.isEmpty()) return;
+        nearby.sort((a, b) -> b.effective - a.effective);
+
+        int count = Math.min(nearby.size(), MAX_WORLD_EMITTERS_PER_SHIP);
+        for (int i = 0; i < count; i++) {
+            NearbyEmitter emitter = nearby.get(i);
+            Vec3 source = new Vec3(emitter.pos.getX() + 0.5, emitter.pos.getY() + 0.5, emitter.pos.getZ() + 0.5);
+            projectIntoShipyard(level, ship, source, emitter.emission, false, exactClusters, vsCompat);
+        }
+    }
+
+    /**
+     * All genuine light-emitting blocks of one world chunk (full height — the
+     * result is cached and shared by ships at any altitude), excluding blocks the
+     * mod placed itself (their records are the player-placed vs. mod-placed
+     * distinction). Returns null when the chunk isn't loaded, so nothing gets
+     * cached for it.
+     */
+    private static Map<BlockPos, Integer> scanChunkForWorldEmitters(ServerLevel level, int chunkX, int chunkZ, Set<BlockPos> ownPlacedLights) {
+        net.minecraft.world.level.chunk.LevelChunk chunk = level.getChunkSource().getChunk(chunkX, chunkZ, false);
+        if (chunk == null) return null;
+
+        Map<BlockPos, Integer> found = null;
+        net.minecraft.world.level.chunk.LevelChunkSection[] sections = chunk.getSections();
+        int baseX = chunkX << 4;
+        int baseZ = chunkZ << 4;
+
+        for (int sectionIndex = 0; sectionIndex < sections.length; sectionIndex++) {
+            net.minecraft.world.level.chunk.LevelChunkSection section = sections[sectionIndex];
+            if (section == null || section.hasOnlyAir()) continue;
+
+            int sectionMinY = level.getSectionYFromSectionIndex(sectionIndex) << 4;
+            if (!section.maybeHas(LUMINOUS)) continue;
+
+            for (int x = 0; x < 16; x++) {
+                for (int y = 0; y < 16; y++) {
+                    for (int z = 0; z < 16; z++) {
+                        net.minecraft.world.level.block.state.BlockState state = section.getBlockState(x, y, z);
+                        int emission = state.getLightEmission();
+                        if (emission <= 0) continue;
+
+                        BlockPos pos = new BlockPos(baseX + x, sectionMinY + y, baseZ + z);
+                        if (state.is(net.minecraft.world.level.block.Blocks.LIGHT) && ownPlacedLights.contains(pos)) continue;
+
+                        if (found == null) found = new HashMap<>();
+                        found.put(pos, emission);
+                    }
+                }
+            }
+        }
+        return found == null ? Collections.emptyMap() : found;
     }
 
     /**

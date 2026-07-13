@@ -25,11 +25,17 @@ public interface IVSCompat {
 
     /**
      * The ship's block bounds in shipyard coordinates as
-     * {minX, minY, minZ, maxX, maxY, maxZ}, or null if unknown. Shipyard light
-     * anchors must stay strictly inside these bounds so a placed block can never
-     * extend the ship's AABB (the old runaway-expansion bug).
+     * {minX, minY, minZ, maxX, maxY, maxZ}, or null if unknown. Used to centre
+     * the shipyard anchor search on the hull surface nearest a light source.
      */
     int[] getShipBlockBounds(Object shipObj);
+
+    /**
+     * The ship's axis-aligned bounds in world space as
+     * {minX, minY, minZ, maxX, maxY, maxZ}, or null if unknown. Used to find the
+     * world light blocks whose light should reach the ship.
+     */
+    double[] getShipWorldBounds(Object shipObj);
 
     /**
      * Every light-emitting block on the ship, in shipyard coordinates, mapped to

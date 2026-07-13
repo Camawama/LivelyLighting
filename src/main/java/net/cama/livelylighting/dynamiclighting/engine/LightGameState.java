@@ -25,6 +25,22 @@ public class LightGameState {
 
     // Maps ShipID -> game time of the last emitter scan.
     public final Map<Long, Long> shipEmitterScanTime = new HashMap<>();
+
+    // Maps Dimension -> (packed ChunkPos -> cached luminous blocks of that chunk).
+    // World lamps are static, so this cache is unaffected by ship movement and is
+    // shared by every ship whose light reach overlaps the chunk; entries expire
+    // by scan time so placed/broken lamps are noticed within a rescan interval.
+    public final Map<ResourceKey<Level>, Map<Long, EmitterScan>> worldEmitterCache = new HashMap<>();
+
+    public static final class EmitterScan {
+        public final long time;
+        public final Map<BlockPos, Integer> emitters;
+
+        public EmitterScan(long time, Map<BlockPos, Integer> emitters) {
+            this.time = time;
+            this.emitters = emitters;
+        }
+    }
     
     // Maps Dimension -> (EntityID -> (SourceID -> LightData))
     public final Map<ResourceKey<Level>, Map<Integer, Map<String, LightData>>> entityLitState = new HashMap<>();
@@ -60,6 +76,7 @@ public class LightGameState {
         playerLights.clear();
         shipEmitterCache.clear();
         shipEmitterScanTime.clear();
+        worldEmitterCache.clear();
         entityLitState.clear();
         sourceEstablished.clear();
         lastSoundTime.clear();

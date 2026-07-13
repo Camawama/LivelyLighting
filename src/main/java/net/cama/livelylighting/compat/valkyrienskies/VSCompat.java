@@ -10,6 +10,7 @@ import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.phys.AABB;
 import org.joml.Vector3d;
+import org.joml.primitives.AABBdc;
 import org.joml.primitives.AABBic;
 import org.valkyrienskies.core.api.ships.Ship;
 import org.valkyrienskies.mod.common.VSGameUtilsKt;
@@ -66,6 +67,17 @@ public class VSCompat implements IVSCompat {
     @Override
     public Object getShipManagingPos(ServerLevel level, BlockPos pos) {
         return VSGameUtilsKt.getShipObjectManagingPos(level, pos);
+    }
+
+    @Override
+    public double[] getShipWorldBounds(Object shipObj) {
+        if (shipObj instanceof Ship ship) {
+            AABBdc aabb = ship.getWorldAABB();
+            if (aabb != null) {
+                return new double[]{aabb.minX(), aabb.minY(), aabb.minZ(), aabb.maxX(), aabb.maxY(), aabb.maxZ()};
+            }
+        }
+        return null;
     }
 
     @Override
