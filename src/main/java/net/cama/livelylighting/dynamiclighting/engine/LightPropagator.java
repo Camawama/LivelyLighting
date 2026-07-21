@@ -376,26 +376,49 @@ public class LightPropagator {
         // back to the source — otherwise an enclosed entity's light gets anchored
         // on the far side of a wall and shines through it.
         List<BlockPos> candidates = new ArrayList<>();
+        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
         for (int x = -radius; x <= radius; x++) {
             for (int y = -radius; y <= radius; y++) {
                 for (int z = -radius; z <= radius; z++) {
                     if (x == 0 && y == 0 && z == 0) continue;
 
-                    BlockPos pos = eyePos.offset(x, y, z);
-                    if (isValidLightSpot(level, pos)) {
-                        candidates.add(pos.immutable());
+                    cursor.setWithOffset(eyePos, x, y, z);
+                    if (isValidLightSpot(level, cursor)) {
+                        candidates.add(cursor.immutable());
                     }
                 }
             }
         }
 
-        candidates.sort(Comparator.comparingDouble(
-                pos -> pos.distToCenterSqr(eyePos.getX() + 0.5, eyePos.getY() + 0.5, eyePos.getZ() + 0.5)));
+        // Selection instead of a full sort: the nearest candidate almost always
+        // passes the light-path check, so repeatedly picking the closest
+        // remaining one is O(n) in the common case. Ties resolve to the earliest
+        // candidate, matching the stable sort this replaces.
+        int n = candidates.size();
+        double[] distSq = new double[n];
+        double cx = eyePos.getX() + 0.5, cy = eyePos.getY() + 0.5, cz = eyePos.getZ() + 0.5;
+        for (int i = 0; i < n; i++) {
+            distSq[i] = candidates.get(i).distToCenterSqr(cx, cy, cz);
+        }
 
-        for (BlockPos pos : candidates) {
+        int remaining = n;
+        while (remaining > 0) {
+            int best = -1;
+            double bestDist = Double.POSITIVE_INFINITY;
+            for (int i = 0; i < n; i++) {
+                if (distSq[i] < bestDist) {
+                    bestDist = distSq[i];
+                    best = i;
+                }
+            }
+            if (best < 0) break;
+
+            BlockPos pos = candidates.get(best);
             if (losFrom == null || hasLightPath(level, new Vec3(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5), losFrom)) {
                 return pos;
             }
+            distSq[best] = Double.POSITIVE_INFINITY;
+            remaining--;
         }
         return null;
     }

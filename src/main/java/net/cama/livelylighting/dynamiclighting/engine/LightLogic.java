@@ -74,13 +74,14 @@ public class LightLogic {
         Map<BlockPos, LightCluster> worldUltraClusters = new HashMap<>();
         int sourceCount = 0;
 
-        // The radius is capped at 192: Valkyrien Skies mixes into
-        // Level.getEntities and silently returns an EMPTY list for "too big"
-        // boxes — VS 2.4.9 rejects volume > 1e8 (~464 blocks cubed; verified in
+        // The radius is capped at 192. The VS ship search boxes below still go
+        // through queries that Valkyrien Skies rejects when "too big" — VS 2.4.9
+        // rejects volume > 1e8 (~464 blocks cubed; verified in
         // BugFixUtil.isCollisionBoxTooBig bytecode), older builds reject > 1000
-        // per axis. That killed all entity lights at higher view distances.
-        // 192 (~5.7e7 volume) clears both limits with margin, and light from an
-        // entity beyond 192 blocks is imperceptible anyway.
+        // per axis; that once killed all entity lights at higher view distances.
+        // 192 (~5.7e7 volume) clears both limits with margin, bounds the entity
+        // range test, and light from a source beyond 192 blocks is imperceptible
+        // anyway. (The entity scan itself no longer uses Level.getEntities.)
         int viewDistance = Math.min(level.getServer().getPlayerList().getViewDistance() * 16, 192);
 
         Set<Integer> processedIds = new HashSet<>();
@@ -94,20 +95,49 @@ public class LightLogic {
         }
 
         if (sourceCount < maxSources) {
-            // Query the entity section index around each player instead of scanning
-            // every loaded entity against every player. processedIds dedupes
-            // entities that fall inside multiple players' ranges.
-            outer:
-            for (Player player : level.players()) {
-                AABB searchBox = player.getBoundingBox().inflate(viewDistance);
-                for (Entity entity : level.getEntities(player, searchBox)) {
-                    if (sourceCount >= maxSources) break outer;
-                    if (entity instanceof Player) continue;
-                    if (!shouldCheckEntity(entity, config)) continue;
+            // Single pass over the loaded-entity list instead of a per-player
+            // sectioned AABB query: the box query walked every entity section in
+            // a ~384-block cube per player each tick and ran through VS's
+            // Level.getEntities mixin. A Chebyshev range test against each
+            // player reproduces the old inflated-box semantics.
+            List<? extends Player> players = level.players();
+            int unlitInterval = Math.max(1, config.unlit_entity_check_interval);
+            long runIndex = level.getGameTime() / Math.max(1, config.light_update_interval);
 
-                    if (processEntity(entity, level, worldClusters, worldUltraClusters, processedIds, config, useVs, gameState, vsCompat)) {
-                        sourceCount++;
+            for (Entity entity : level.getAllEntities()) {
+                if (sourceCount >= maxSources) break;
+                if (entity instanceof Player) continue;
+
+                boolean near = false;
+                for (Player player : players) {
+                    if (Math.abs(entity.getX() - player.getX()) <= viewDistance
+                            && Math.abs(entity.getY() - player.getY()) <= viewDistance
+                            && Math.abs(entity.getZ() - player.getZ()) <= viewDistance) {
+                        near = true;
+                        break;
                     }
+                }
+                if (!near) continue;
+                if (!shouldCheckEntity(entity, config)) continue;
+
+                // Unlit entities are only re-checked for NEW light every
+                // unlitInterval runs, staggered by id. Lit entities are never
+                // skipped, so existing lights, trails and fade-outs are
+                // untouched — ignition can merely start up to interval-1 ticks
+                // late. TNT and creepers are exempt so their flash cadence
+                // stays exact. Staggering by run index (not raw game time)
+                // keeps the stagger cycling when light_update_interval shares a
+                // factor with it.
+                if (unlitInterval > 1
+                        && (entity.getId() + runIndex) % unlitInterval != 0
+                        && !(entity instanceof PrimedTnt)
+                        && !(entity instanceof Creeper)
+                        && !hasLitState(level, entity.getId(), gameState)) {
+                    continue;
+                }
+
+                if (processEntity(entity, level, worldClusters, worldUltraClusters, processedIds, config, useVs, gameState, vsCompat)) {
+                    sourceCount++;
                 }
             }
         }
@@ -326,6 +356,13 @@ public class LightLogic {
         }
     }
     
+    // Whether any source on this entity was lit last run — such entities bypass
+    // the unlit-entity throttle so active lights are never skipped.
+    private static boolean hasLitState(ServerLevel level, int entityId, LightGameState gameState) {
+        Map<Integer, Map<String, LightData>> dimensionState = gameState.entityLitState.get(level.dimension());
+        return dimensionState != null && dimensionState.containsKey(entityId);
+    }
+
     private static LightData getEntityLitState(ServerLevel level, int entityId, String sourceId, LightGameState gameState) {
         Map<Integer, Map<String, LightData>> dimensionState = gameState.entityLitState.get(level.dimension());
         if (dimensionState == null) return null;
@@ -349,6 +386,27 @@ public class LightLogic {
         }
     }
     
+    /**
+     * Where ignition/extinguish sounds and particles spawn: half a block in front
+     * of the eyes, offset toward the hand. Computed from xRot/yRot directly
+     * rather than Entity.getViewVector — GravityChanger-style mods inject a
+     * capability lookup into getRotationVector, which made the two getViewVector
+     * calls here the hottest vanilla calls in the mod despite the result only
+     * being needed on the rare ignition/extinguish tick.
+     */
+    private static Vec3 handPos(Entity entity) {
+        float xRot = entity.getXRot() * ((float) Math.PI / 180F);
+        float yRot = -entity.getYRot() * ((float) Math.PI / 180F);
+        float cosY = net.minecraft.util.Mth.cos(yRot);
+        float sinY = net.minecraft.util.Mth.sin(yRot);
+        float cosX = net.minecraft.util.Mth.cos(xRot);
+        float sinX = net.minecraft.util.Mth.sin(xRot);
+        Vec3 view = new Vec3(sinY * cosX, -sinX, cosY * cosX);
+        return new Vec3(entity.getX(), entity.getEyeY(), entity.getZ())
+                .add(view.scale(0.5))
+                .add(view.cross(new Vec3(0, 1, 0)).scale(0.3));
+    }
+
     private static void processLightData(Entity entity, ServerLevel level, Map<BlockPos, LightCluster> worldClusters, Map<BlockPos, LightCluster> worldUltraClusters, LivelyConfig config, boolean useVs, LightData lightData, String sourceId, LightGameState gameState, IVSCompat vsCompat, Vec3 velocity) {
         LivelyLightingData worldData = LivelyLightingData.get(level);
         int lightLevel = lightData.level;
@@ -361,9 +419,7 @@ public class LightLogic {
         boolean isLit = lightLevel > 0;
         
         boolean isNew = isLit && !wasLit;
-        
-        Vec3 handPos = entity.getEyePosition().add(entity.getViewVector(1.0f).scale(0.5)).add(entity.getViewVector(1.0f).cross(new Vec3(0, 1, 0)).scale(0.3));
-        
+
         if (wasLit && !isLit) {
             if (config.enable_sounds && !worldData.arePlayerSoundsDisabled(entity.getUUID())) {
                 boolean playExtinguish = false;
@@ -377,6 +433,7 @@ public class LightLogic {
                 }
                 
                 if (playExtinguish) {
+                    Vec3 handPos = handPos(entity);
                     if (lastData != null && lastData.extinguishSounds != null && !lastData.extinguishSounds.isEmpty()) {
                         for (SoundData sd : lastData.extinguishSounds) {
                             level.playSound(null, handPos.x, handPos.y, handPos.z, sd.sound, SoundSource.NEUTRAL, sd.volume, sd.pitch);
@@ -400,6 +457,7 @@ public class LightLogic {
 
                      if (currentTime - lastTime >= 10) { // 10 tick cooldown (0.5s)
                          soundTimes.put(entity.getId(), currentTime);
+                         Vec3 handPos = handPos(entity);
 
                          if (config.enable_sounds && !worldData.arePlayerSoundsDisabled(entity.getUUID())) {
                              if (sounds != null) {

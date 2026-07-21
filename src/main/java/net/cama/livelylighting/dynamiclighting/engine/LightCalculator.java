@@ -266,11 +266,17 @@ public class LightCalculator {
     }
 
     public static LightData getEntityLightLevel(Entity entity, ServerLevel level, LivelyConfig config) {
-        // Check if entity is suffocating inside a block
-        if (isSuffocating(entity, level)) {
+        LightData result = computeEntityLightLevel(entity, level, config);
+        // Suffocation reads world state and is the expensive test here, so it
+        // runs last and only for entities that would actually emit — the vast
+        // majority of entities are unlit and skip it entirely.
+        if (result.level > 0 && isSuffocating(entity, level)) {
             return EMPTY_LIGHT_DATA;
         }
+        return result;
+    }
 
+    private static LightData computeEntityLightLevel(Entity entity, ServerLevel level, LivelyConfig config) {
         if (config.burning_entity_lighting && entity.isOnFire()) return new LightData(15, false, FLAME_PARTICLES, FLAME_SOUNDS, FLAME_EXTINGUISH_SOUNDS);
         
         if (config.glowing_effect_lighting && entity instanceof LivingEntity living && living.hasEffect(MobEffects.GLOWING)) {
@@ -366,35 +372,45 @@ public class LightCalculator {
             }
         }
         
-        if (data != null) {
-            // Check if entity is suffocating inside a block - GLOBAL CHECK for all items
+        // data is non-null here (worst case EMPTY_LIGHT_DATA from the cache).
+        if (data.level > 0) {
+            // Suffocation only matters for stacks that would actually emit; this
+            // used to run for every slot of every entity, lit or not.
             if (isSuffocating(entity, level)) {
                 return new LightData(0, false, data.particles, data.sounds, data.extinguishSounds);
             }
 
-            if (data.level > 0 && data.waterSensitive) {
+            if (data.waterSensitive) {
                 // Fix edge case: in water AND rain.
                 // If in water, extinguish.
                 // If raining and can see sky, extinguish.
-                
+
                 // Check if fluid height is significant (approx hand/chest level)
                 boolean inWater = entity.isInWater() && entity.getFluidHeight(FluidTags.WATER) > entity.getEyeHeight() - 0.3;
                 boolean inRain = level.isRainingAt(entity.blockPosition()) && level.canSeeSky(entity.blockPosition());
-                
+
                 if (inWater || inRain) {
                     return new LightData(0, false, data.particles, data.sounds, data.extinguishSounds);
                 }
             }
-            if (data.level > 0) return data;
+            return data;
         }
-        
+
         if (config.enchanted_items_glow && stack.isEnchanted()) {
-            return ENCHANTED_LIGHT_DATA;
+            // Suffocation gates enchanted glow too, exactly as the old
+            // top-of-method check did.
+            return isSuffocating(entity, level) ? EMPTY_LIGHT_DATA : ENCHANTED_LIGHT_DATA;
         }
 
         return EMPTY_LIGHT_DATA;
     }
-    
+
+    // Per-tick memo: a lit entity asks this up to 7 times per tick (body check
+    // plus every equipment slot). Entity ids are unique server-wide and an
+    // entity lives in exactly one dimension, so the id alone is a safe key.
+    private static long suffocationCacheTime = Long.MIN_VALUE;
+    private static final Map<Integer, Boolean> suffocationCache = new HashMap<>();
+
     private static boolean isSuffocating(Entity entity, ServerLevel level) {
         // Only living entities suffocate. Projectiles stuck in walls (spectral
         // arrows), dropped items and item frames keep their light — the anchor
@@ -402,10 +418,23 @@ public class LightCalculator {
         // from lighting through blocks, and a stuck arrow's tip being embedded
         // made isInWall() wrongly extinguish it.
         if (!(entity instanceof LivingEntity)) return false;
-        if (entity.isInWall()) return true;
 
-        BlockPos eyePos = BlockPos.containing(entity.getEyePosition());
+        long now = level.getGameTime();
+        if (now != suffocationCacheTime) {
+            suffocationCacheTime = now;
+            suffocationCache.clear();
+        }
+        Boolean cached = suffocationCache.get(entity.getId());
+        if (cached != null) return cached;
+
+        // Single suffocation test at the eye block. Vanilla isInWall() samples 8
+        // corner points of the head and streams over collision shapes for what
+        // is visually the same answer: the light goes out when the head is
+        // inside a solid block.
+        BlockPos eyePos = BlockPos.containing(entity.getX(), entity.getEyeY(), entity.getZ());
         BlockState state = level.getBlockState(eyePos);
-        return state.isSuffocating(level, eyePos);
+        boolean result = state.isSuffocating(level, eyePos);
+        suffocationCache.put(entity.getId(), result);
+        return result;
     }
 }

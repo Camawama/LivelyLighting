@@ -47,6 +47,12 @@ public class LivelyConfig {
     // Run the light engine every N ticks (1 = every tick). Movement handoffs only
     // shift light by one level per block, so 2 still looks smooth on busy servers.
     public int light_update_interval = 1;
+    // Re-check UNLIT non-player entities for new light sources only every N runs,
+    // staggered by entity id (1 = every run). Entities that are already lit are
+    // still processed every run, so existing lights, trails and fade-outs are
+    // unaffected — a mob's light can merely ignite up to N-1 ticks late. TNT and
+    // creepers are always exempt so their flash timing stays exact.
+    public int unlit_entity_check_interval = 2;
 
     public boolean auto_detect_block_light = true;
     public List<String> auto_detect_blacklist = new ArrayList<>(Arrays.asList(
