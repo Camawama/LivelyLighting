@@ -117,6 +117,28 @@ public class LightLogic {
                         break;
                     }
                 }
+                if (!near && vsCompat != null) {
+                    // Shipyard-resident entities (item frames and other hanging
+                    // entities mounted on ship blocks) have raw coordinates in
+                    // the far-away shipyard region and can never pass the
+                    // world-space test above; the old sectioned AABB query
+                    // included them via VS's Level.getEntities mixin. Range-test
+                    // their ship-transformed world position instead. Gated on
+                    // vsCompat (not useVs) to match the mixin's old behavior of
+                    // feeding these in even with vs_support disabled.
+                    Object ship = vsCompat.getShipManagingPos(level, entity.blockPosition());
+                    if (ship != null) {
+                        double[] worldPos = vsCompat.transformShipToWorld(ship, entity.getX(), entity.getY(), entity.getZ());
+                        for (Player player : players) {
+                            if (Math.abs(worldPos[0] - player.getX()) <= viewDistance
+                                    && Math.abs(worldPos[1] - player.getY()) <= viewDistance
+                                    && Math.abs(worldPos[2] - player.getZ()) <= viewDistance) {
+                                near = true;
+                                break;
+                            }
+                        }
+                    }
+                }
                 if (!near) continue;
                 if (!shouldCheckEntity(entity, config)) continue;
 
