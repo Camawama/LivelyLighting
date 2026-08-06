@@ -2,8 +2,12 @@ package net.cama.livelylighting;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.mojang.logging.LogUtils;
 import net.minecraftforge.fml.loading.FMLPaths;
+import org.slf4j.Logger;
 
 import java.io.File;
 import java.io.FileReader;
@@ -16,7 +20,8 @@ import java.util.Arrays;
 import java.util.List;
 
 public class LivelyConfig {
-    
+
+    private static final Logger LOGGER = LogUtils.getLogger();
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Path CONFIG_DIR = FMLPaths.CONFIGDIR.get().resolve("livelylighting");
     private static final File CONFIG_FILE = CONFIG_DIR.resolve("livelylighting.json").toFile();
@@ -53,6 +58,15 @@ public class LivelyConfig {
     // unaffected — a mob's light can merely ignite up to N-1 ticks late. TNT and
     // creepers are always exempt so their flash timing stays exact.
     public int unlit_entity_check_interval = 2;
+
+    // At most this many entities may ignite (transition from unlit to lit) per
+    // engine run; 0 = unlimited. Spawning into a world where dozens of sources
+    // become visible at once used to place every light block in the same tick —
+    // one huge light-propagation burst on the client and a visible freeze. With
+    // a budget the backlog drains over a few ticks as a quick cascade instead.
+    // Already-lit sources are unaffected; players, TNT and creepers are never
+    // budgeted.
+    public int max_ignitions_per_tick = 10;
 
     // Distance-based LOD. A lit entity farther (Chebyshev) than lod_start_distance
     // from every player refreshes its light only every N runs; N grows by 1 per
@@ -171,27 +185,85 @@ public class LivelyConfig {
         }
 
         if (CONFIG_FILE.exists()) {
+            JsonObject onDisk = null;
+            instance = null;
             try (FileReader reader = new FileReader(CONFIG_FILE)) {
-                instance = GSON.fromJson(reader, LivelyConfig.class);
-            } catch (IOException e) {
-                e.printStackTrace();
-                instance = new LivelyConfig();
+                onDisk = JsonParser.parseReader(reader).getAsJsonObject();
+                instance = GSON.fromJson(onDisk, LivelyConfig.class);
+            } catch (Exception e) {
+                // Unreadable, malformed, or the wrong shape. Set the broken file
+                // aside for inspection and regenerate defaults instead of letting
+                // the parse exception escape into the server tick.
+                LOGGER.error("Could not parse {}; moving it to {}.broken and regenerating defaults",
+                        CONFIG_FILE, CONFIG_FILE.getName(), e);
+                backupBrokenConfig();
+                onDisk = null;
             }
             if (instance == null) {
                 instance = new LivelyConfig();
+                save();
+                return;
             }
             if (instance.experimental == null) {
                 instance.experimental = new Experimental();
             }
-            migrateLegacyFields();
+            boolean changed = migrateLegacyFields();
+            // Auto-upgrade outdated files: gson quietly fills options missing
+            // from the file with their defaults, but never writes them back, so
+            // the file drifts out of sync with the mod and new options stay
+            // invisible to the user. Whenever the file's key set differs from
+            // the current schema — options added since it was written, or stale
+            // ones it still carries — rewrite it: user values kept, new options
+            // at their defaults, removed ones dropped.
+            if (onDisk != null && schemaDiffers(onDisk, GSON.toJsonTree(instance).getAsJsonObject())) {
+                changed = true;
+                LOGGER.info("Config file {} is outdated; rewriting it with current options (existing settings kept)",
+                        CONFIG_FILE.getName());
+            }
+            if (changed) {
+                save();
+            }
         } else {
             instance = new LivelyConfig();
             save();
         }
     }
 
-    // Carry smoothing settings from pre-0.3.2 config files (experimental.*) to the top level.
-    private static void migrateLegacyFields() {
+    /**
+     * Whether the config file's structure disagrees with the current schema in
+     * either direction: a key the schema has but the file lacks (option added
+     * since the file was written) or a key the file has but the schema doesn't
+     * (option removed or renamed). Values are never compared — user settings are
+     * not the schema. Nested objects recurse; arrays are leaves.
+     */
+    private static boolean schemaDiffers(JsonObject onDisk, JsonObject current) {
+        for (String key : current.keySet()) {
+            JsonElement fileValue = onDisk.get(key);
+            if (fileValue == null) return true;
+            JsonElement currentValue = current.get(key);
+            if (currentValue.isJsonObject() && fileValue.isJsonObject()
+                    && schemaDiffers(fileValue.getAsJsonObject(), currentValue.getAsJsonObject())) {
+                return true;
+            }
+        }
+        for (String key : onDisk.keySet()) {
+            if (!current.has(key)) return true;
+        }
+        return false;
+    }
+
+    private static void backupBrokenConfig() {
+        try {
+            Files.move(CONFIG_FILE.toPath(), CONFIG_FILE.toPath().resolveSibling(CONFIG_FILE.getName() + ".broken"),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            LOGGER.error("Could not back up broken config file", e);
+        }
+    }
+
+    // Carry smoothing settings from pre-0.3.2 config files (experimental.*) to the
+    // top level. Returns whether anything was migrated; the caller saves.
+    private static boolean migrateLegacyFields() {
         Experimental exp = instance.experimental;
         boolean migrated = false;
         if (exp.smoothing != null) {
@@ -214,9 +286,7 @@ public class LivelyConfig {
             exp.fade_in_rate = null;
             migrated = true;
         }
-        if (migrated) {
-            save();
-        }
+        return migrated;
     }
 
     public static void save() {

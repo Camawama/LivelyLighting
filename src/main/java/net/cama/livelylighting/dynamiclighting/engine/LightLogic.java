@@ -117,6 +117,12 @@ public class LightLogic {
             // already at the full update rate.
             double earlyOut = lodEnabled ? Math.min(lodStart, cullLimit) : cullLimit;
 
+            // Budgeted ignition: how many unlit->lit transitions this run may
+            // still perform. Players were processed above without touching this,
+            // so a joining player's own light is always immediate.
+            int ignitionBudget = config.max_ignitions_per_tick > 0
+                    ? config.max_ignitions_per_tick : Integer.MAX_VALUE;
+
             for (Entity entity : level.getAllEntities()) {
                 if (sourceCount >= maxSources) break;
                 if (entity instanceof Player) continue;
@@ -173,7 +179,8 @@ public class LightLogic {
                 // shares a factor with it.
                 boolean throttleExempt = entity instanceof PrimedTnt || entity instanceof Creeper;
 
-                if (!hasLitState(level, entity.getId(), gameState)) {
+                boolean wasUnlit = !hasLitState(level, entity.getId(), gameState);
+                if (wasUnlit) {
                     // Unlit entities are only re-checked for NEW light every
                     // checkInterval runs, staggered by id — ignition can merely
                     // start up to interval-1 runs late, existing lights are
@@ -182,6 +189,14 @@ public class LightLogic {
                     int checkInterval = Math.max(unlitInterval, lodInterval);
                     if (checkInterval > 1 && !throttleExempt
                             && (entity.getId() + runIndex) % checkInterval != 0) {
+                        continue;
+                    }
+                    // Out of ignition budget this run: defer before doing any
+                    // item/equipment scan work. The entity stays unlit and gets
+                    // its turn as the backlog drains over the next few runs —
+                    // this is what turns the world-join "every source ignites
+                    // in one tick" freeze into a brief cascade.
+                    if (ignitionBudget <= 0 && !throttleExempt) {
                         continue;
                     }
                 } else if (lodInterval > 1 && !throttleExempt
@@ -203,6 +218,9 @@ public class LightLogic {
 
                 if (processEntity(entity, level, worldClusters, worldUltraClusters, processedIds, config, useVs, gameState, vsCompat)) {
                     sourceCount++;
+                    if (wasUnlit) {
+                        ignitionBudget--;
+                    }
                 }
             }
         }
