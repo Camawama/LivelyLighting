@@ -104,20 +104,36 @@ public class LightLogic {
             int unlitInterval = Math.max(1, config.unlit_entity_check_interval);
             long runIndex = level.getGameTime() / Math.max(1, config.light_update_interval);
 
+            boolean lodEnabled = config.distance_lod;
+            int lodStart = config.lod_start_distance;
+            int lodStep = Math.max(1, config.lod_distance_step);
+            int lodMax = Math.max(1, config.lod_max_interval);
+            int cullLimit = viewDistance;
+            if (config.light_cull_distance > 0) {
+                cullLimit = Math.min(cullLimit, config.light_cull_distance);
+            }
+            // Once a player at most this close is found, scanning further players
+            // can't change the outcome: the entity is within the cull limit and
+            // already at the full update rate.
+            double earlyOut = lodEnabled ? Math.min(lodStart, cullLimit) : cullLimit;
+
             for (Entity entity : level.getAllEntities()) {
                 if (sourceCount >= maxSources) break;
                 if (entity instanceof Player) continue;
 
-                boolean near = false;
+                // Chebyshev distance to the nearest player: reproduces the old
+                // inflated-box inclusion test exactly at distance == cullLimit,
+                // and doubles as the LOD metric below.
+                double minDist = Double.MAX_VALUE;
                 for (Player player : players) {
-                    if (Math.abs(entity.getX() - player.getX()) <= viewDistance
-                            && Math.abs(entity.getY() - player.getY()) <= viewDistance
-                            && Math.abs(entity.getZ() - player.getZ()) <= viewDistance) {
-                        near = true;
-                        break;
-                    }
+                    double cheb = Math.max(Math.abs(entity.getX() - player.getX()),
+                                  Math.max(Math.abs(entity.getY() - player.getY()),
+                                           Math.abs(entity.getZ() - player.getZ())));
+                    if (cheb < minDist) minDist = cheb;
+                    if (minDist <= earlyOut) break;
                 }
-                if (!near && vsCompat != null) {
+                boolean shipResident = false;
+                if (minDist > cullLimit && vsCompat != null) {
                     // Shipyard-resident entities (item frames and other hanging
                     // entities mounted on ship blocks) have raw coordinates in
                     // the far-away shipyard region and can never pass the
@@ -128,34 +144,61 @@ public class LightLogic {
                     // feeding these in even with vs_support disabled.
                     Object ship = vsCompat.getShipManagingPos(level, entity.blockPosition());
                     if (ship != null) {
+                        shipResident = true;
                         double[] worldPos = vsCompat.transformShipToWorld(ship, entity.getX(), entity.getY(), entity.getZ());
                         for (Player player : players) {
-                            if (Math.abs(worldPos[0] - player.getX()) <= viewDistance
-                                    && Math.abs(worldPos[1] - player.getY()) <= viewDistance
-                                    && Math.abs(worldPos[2] - player.getZ()) <= viewDistance) {
-                                near = true;
-                                break;
-                            }
+                            double cheb = Math.max(Math.abs(worldPos[0] - player.getX()),
+                                          Math.max(Math.abs(worldPos[1] - player.getY()),
+                                                   Math.abs(worldPos[2] - player.getZ())));
+                            if (cheb < minDist) minDist = cheb;
                         }
                     }
                 }
-                if (!near) continue;
+                if (minDist > cullLimit) continue;
                 if (!shouldCheckEntity(entity, config)) continue;
 
-                // Unlit entities are only re-checked for NEW light every
-                // unlitInterval runs, staggered by id. Lit entities are never
-                // skipped, so existing lights, trails and fade-outs are
-                // untouched — ignition can merely start up to interval-1 ticks
-                // late. TNT and creepers are exempt so their flash cadence
-                // stays exact. Staggering by run index (not raw game time)
-                // keeps the stagger cycling when light_update_interval shares a
-                // factor with it.
-                if (unlitInterval > 1
-                        && (entity.getId() + runIndex) % unlitInterval != 0
-                        && !(entity instanceof PrimedTnt)
-                        && !(entity instanceof Creeper)
-                        && !hasLitState(level, entity.getId(), gameState)) {
-                    continue;
+                // Distance LOD: refresh interval grows with distance from the
+                // nearest player. Ship-resident sources are exempt — their
+                // world-side projection is recomputed from scratch every run
+                // (never cached in lastSourcePos), so freezing them would let
+                // that projection fade and pulse between refreshes.
+                int lodInterval = 1;
+                if (lodEnabled && !shipResident && minDist > lodStart) {
+                    lodInterval = Math.min(lodMax, 1 + (int) ((minDist - lodStart) / lodStep));
+                }
+
+                // TNT and creepers are exempt from every throttle so their flash
+                // cadence stays exact. Staggering by run index (not raw game
+                // time) keeps the stagger cycling when light_update_interval
+                // shares a factor with it.
+                boolean throttleExempt = entity instanceof PrimedTnt || entity instanceof Creeper;
+
+                if (!hasLitState(level, entity.getId(), gameState)) {
+                    // Unlit entities are only re-checked for NEW light every
+                    // checkInterval runs, staggered by id — ignition can merely
+                    // start up to interval-1 runs late, existing lights are
+                    // untouched. The LOD interval folds in here so far-away
+                    // unlit mobs are polled at the LOD rate too.
+                    int checkInterval = Math.max(unlitInterval, lodInterval);
+                    if (checkInterval > 1 && !throttleExempt
+                            && (entity.getId() + runIndex) % checkInterval != 0) {
+                        continue;
+                    }
+                } else if (lodInterval > 1 && !throttleExempt
+                        && (entity.getId() + runIndex) % lodInterval != 0) {
+                    // LOD-skipped run for a lit entity: freeze its light exactly
+                    // where it is instead of recomputing it. Desired == current
+                    // means applyChanges touches nothing — zero block updates
+                    // reach the client, which is the entire point of the LOD.
+                    // The anchor catches up on the entity's next refresh run and
+                    // the abandoned spot fades out as a normal trail.
+                    if (freezeEntityLights(level, entity, gameState, worldUltraClusters)) {
+                        sourceCount++;
+                        continue;
+                    }
+                    // Nothing to freeze (ultra-smoothing sources keep no anchor
+                    // cache): process normally rather than letting the light
+                    // fade out mid-skip.
                 }
 
                 if (processEntity(entity, level, worldClusters, worldUltraClusters, processedIds, config, useVs, gameState, vsCompat)) {
@@ -383,6 +426,40 @@ public class LightLogic {
     private static boolean hasLitState(ServerLevel level, int entityId, LightGameState gameState) {
         Map<Integer, Map<String, LightData>> dimensionState = gameState.entityLitState.get(level.dimension());
         return dimensionState != null && dimensionState.containsKey(entityId);
+    }
+
+    /**
+     * Re-injects an LOD-skipped entity's cached anchors into the desired field at
+     * exactly their currently applied level, holding the light in place for this
+     * run. Because desired == current, applyChanges recognizes the block as
+     * already correct and performs no setBlock at all — a frozen source costs the
+     * server one map lookup and the client literally nothing. Carry equals the
+     * level so the fade-in ramp can't re-trigger. Goes through the exact-position
+     * cluster map since the anchor is a pre-validated single block that must not
+     * be grid-merged or position-averaged.
+     *
+     * Returns false when there is nothing to freeze (no cached anchor, or its
+     * block is already gone), in which case the caller should process the entity
+     * normally so its light state can't silently rot.
+     */
+    private static boolean freezeEntityLights(ServerLevel level, Entity entity, LightGameState gameState, Map<BlockPos, LightCluster> exactClusters) {
+        Map<Integer, Map<String, BlockPos>> dimSourcePos = gameState.lastSourcePos.get(level.dimension());
+        if (dimSourcePos == null) return false;
+        Map<String, BlockPos> anchors = dimSourcePos.get(entity.getId());
+        if (anchors == null || anchors.isEmpty()) return false;
+        Map<BlockPos, Integer> dimLights = gameState.levelLights.get(level.dimension());
+        if (dimLights == null) return false;
+
+        boolean frozen = false;
+        boolean isPlayer = entity instanceof Player;
+        for (BlockPos pos : anchors.values()) {
+            Integer current = dimLights.get(pos);
+            if (current == null || current <= 0) continue;
+            exactClusters.computeIfAbsent(pos, k -> new LightCluster())
+                         .add(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, current, isPlayer, current);
+            frozen = true;
+        }
+        return frozen;
     }
 
     private static LightData getEntityLitState(ServerLevel level, int entityId, String sourceId, LightGameState gameState) {

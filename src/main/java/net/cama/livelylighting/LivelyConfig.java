@@ -54,6 +54,23 @@ public class LivelyConfig {
     // creepers are always exempt so their flash timing stays exact.
     public int unlit_entity_check_interval = 2;
 
+    // Distance-based LOD. A lit entity farther (Chebyshev) than lod_start_distance
+    // from every player refreshes its light only every N runs; N grows by 1 per
+    // lod_distance_step blocks beyond the start, capped at lod_max_interval.
+    // Between refreshes the entity's light block is frozen exactly in place, so a
+    // skipped run emits zero block updates — and block updates are the entire
+    // client-side cost of a dynamic light. Players, TNT, creepers and
+    // shipyard-resident sources always run at full rate.
+    public boolean distance_lod = true;
+    public int lod_start_distance = 32;
+    public int lod_distance_step = 16;
+    public int lod_max_interval = 8;
+    // 0 = disabled. Otherwise entity light sources farther than this from every
+    // player are dropped entirely (the light fades out through the normal path
+    // and re-ignites on approach). Applied on top of the view-distance cap; keep
+    // it well above the lod distances or lights visibly pop at night.
+    public int light_cull_distance = 0;
+
     public boolean auto_detect_block_light = true;
     public List<String> auto_detect_blacklist = new ArrayList<>(Arrays.asList(
             "minecraft:light"
