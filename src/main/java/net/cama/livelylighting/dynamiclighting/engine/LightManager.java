@@ -2,8 +2,8 @@ package net.cama.livelylighting.dynamiclighting.engine;
 
 import net.cama.livelylighting.LivelyConfig;
 import net.cama.livelylighting.LivelyLighting;
-import net.cama.livelylighting.compat.valkyrienskies.IVSCompat;
 import net.cama.livelylighting.data.LivelyLightingData;
+import net.camacraft.camafy.compat.vs.Ships;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
@@ -15,7 +15,6 @@ import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.living.LivingEquipmentChangeEvent;
 import net.minecraftforge.event.level.ChunkEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.ModList;
 import net.minecraftforge.fml.common.Mod;
 
 import java.util.*;
@@ -35,10 +34,6 @@ public class LightManager {
     // so only the chunk position is queued; the sweep runs on the level tick.
     private static final Map<ResourceKey<Level>, Queue<ChunkPos>> pendingChunkSweeps = new ConcurrentHashMap<>();
     private static final int MAX_CHUNK_SWEEPS_PER_TICK = 16;
-
-    private static boolean isVsLoaded;
-    private static boolean checkedVs = false;
-    private static IVSCompat vsCompat;
 
     public static void reloadConfig() {
         LivelyConfig.load();
@@ -86,20 +81,6 @@ public class LightManager {
     public static void onLevelTick(TickEvent.LevelTickEvent event) {
         if (event.phase != TickEvent.Phase.END || event.level.isClientSide) return;
 
-        if (!checkedVs) {
-            isVsLoaded = ModList.get().isLoaded("valkyrienskies");
-            if (isVsLoaded) {
-                try {
-                    Class<?> clazz = Class.forName("net.cama.livelylighting.compat.valkyrienskies.VSCompat");
-                    vsCompat = (IVSCompat) clazz.getDeclaredConstructor().newInstance();
-                } catch (Throwable t) {
-                    isVsLoaded = false;
-                    t.printStackTrace();
-                }
-            }
-            checkedVs = true;
-        }
-
         LivelyConfig config = LivelyConfig.get();
         if (!config.enable) return;
 
@@ -129,7 +110,10 @@ public class LightManager {
         int interval = Math.max(1, config.light_update_interval);
         if (!forced && interval > 1 && level.getGameTime() % interval != 0) return;
 
-        LightLogic.runLightLogic(level, config, gameState, vsCompat, isVsLoaded && config.vs_support && vsCompat != null);
+        // Valkyrien Skies is reached through Camafy, which answers "no ships" without it;
+        // available() is false when VS is absent or Camafy switched its ship support off.
+        boolean vsAvailable = Ships.available();
+        LightLogic.runLightLogic(level, config, gameState, vsAvailable, vsAvailable && config.vs_support);
     }
 
     private static void sweepOrphanedLights(ServerLevel level) {

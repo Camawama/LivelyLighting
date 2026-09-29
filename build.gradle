@@ -73,8 +73,9 @@ sourceSets.main.resources { srcDir 'src/generated/resources' }
 
 repositories {
     mavenCentral()
+    // Camafy (the shared CamaCraft library) is published here by its own `publishToMavenLocal`.
+    mavenLocal()
     maven { url = 'https://repo.spongepowered.org/repository/maven-public/' }
-    maven { url = 'https://maven.valkyrienskies.org' }
     maven { url = 'https://thedarkcolour.github.io/KotlinForForge/' }
     maven {
         name = "Modrinth"
@@ -101,17 +102,15 @@ dependencies {
     //runtimeOnly fg.deobf("curse.maven:true-darkness-forge-updated-fork-970641:5080314")
     //runtimeOnly fg.deobf("curse.maven:colorful-lighting-sodium-compat-1373023:7997994")
 
-    // --- VS2 DEPENDENCIES ---
-    compileOnly fg.deobf("thedarkcolour:kotlinforforge:4.11.0")
+    // Camafy: required. All Valkyrien Skies access goes through its ship facade
+    // (net.camacraft.camafy.compat.vs), so VS isn't needed at compile time.
+    implementation fg.deobf("net.camacraft.camafy:camafy:${camafy_version}")
+
+    // --- VS2 (dev runtime only) ---
+    // Camafy's VS support needs VS 2.4.11+. Modrinth's copy of the 2.4.11 jar has a
+    // dependency-free POM (the VS maven's drags in Create, Twilight Forest, ...).
     runtimeOnly fg.deobf("thedarkcolour:kotlinforforge:4.11.0")
-
-    compileOnly fg.deobf("org.valkyrienskies:valkyrienskies-120-forge:2.4.9")
-    runtimeOnly fg.deobf("org.valkyrienskies:valkyrienskies-120-forge:2.4.9")
-
-    // Core API
-    compileOnly "org.valkyrienskies.core:api:+"
-    compileOnly "org.valkyrienskies.core:impl:+"
-    compileOnly "org.valkyrienskies.core:util:+"
+    runtimeOnly fg.deobf("maven.modrinth:valkyrien-skies:pOkdwuUh") // 1.20.1-forge-2.4.11
 
     implementation("org.joml:joml:1.10.5")
     implementation "net.jodah:typetools:0.6.3"
@@ -127,7 +126,7 @@ tasks.named('processResources', ProcessResources).configure {
     var replaceProperties = [
             minecraft_version: minecraft_version, minecraft_version_range: minecraft_version_range,
             forge_version: forge_version, forge_version_range: forge_version_range,
-            loader_version_range: loader_version_range,
+            loader_version_range: loader_version_range, camafy_version_range: camafy_version_range,
             mod_id: mod_id, mod_name: mod_name, mod_license: mod_license, mod_version: mod_version,
             mod_authors: mod_authors, mod_description: mod_description,
     ]

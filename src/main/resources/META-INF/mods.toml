@@ -25,6 +25,15 @@ logoFile="assets/livelylighting/logo.png"
     ordering="NONE"
     side="BOTH"
 
+# Camafy, the shared CamaCraft library: required. Lively Lighting reaches Valkyrien
+# Skies only through it. Server-side only, like Lively Lighting itself.
+[[dependencies.${mod_id}]]
+    modId="camafy"
+    mandatory=true
+    versionRange="${camafy_version_range}"
+    ordering="AFTER"
+    side="SERVER"
+
 [[dependencies.${mod_id}]]
     modId="valkyrienskies"
     mandatory=false

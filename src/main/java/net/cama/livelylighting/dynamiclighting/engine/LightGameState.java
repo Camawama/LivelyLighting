@@ -17,14 +17,16 @@ public class LightGameState {
     // Maps dimension -> Set<BlockPos> of lights created/influenced by players
     public final Map<ResourceKey<Level>, Set<BlockPos>> playerLights = new HashMap<>();
     
-    // Maps ShipID -> (shipyard BlockPos -> light emission) of the ship's own
-    // light-emitting blocks, rescanned periodically. Projected into the world each
-    // tick so a moving/rotating ship's lamps illuminate the world around it.
-    // Nothing is ever placed inside the shipyard.
-    public final Map<Long, Map<BlockPos, Integer>> shipEmitterCache = new HashMap<>();
+    // Maps Dimension -> (ShipID -> (shipyard BlockPos -> light emission)) of the
+    // ship's own light-emitting blocks, rescanned periodically. Projected into the
+    // world each tick so a moving/rotating ship's lamps illuminate the world around
+    // it. Nothing is ever placed inside the shipyard. Keyed by dimension like the
+    // caches below: each level prunes these against its own loaded ships, which
+    // must not evict the entries of ships loaded in another dimension.
+    public final Map<ResourceKey<Level>, Map<Long, Map<BlockPos, Integer>>> shipEmitterCache = new HashMap<>();
 
-    // Maps ShipID -> game time of the last emitter scan.
-    public final Map<Long, Long> shipEmitterScanTime = new HashMap<>();
+    // Maps Dimension -> (ShipID -> game time of the last emitter scan).
+    public final Map<ResourceKey<Level>, Map<Long, Long>> shipEmitterScanTime = new HashMap<>();
 
     // Maps Dimension -> (packed ChunkPos -> cached luminous blocks of that chunk).
     // World lamps are static, so this cache is unaffected by ship movement and is
