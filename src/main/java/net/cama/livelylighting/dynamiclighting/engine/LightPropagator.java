@@ -119,8 +119,9 @@ public class LightPropagator {
                         }
                     }
 
-                    if (level.isLoaded(currentPos)) {
-                        BlockState state = level.getBlockState(currentPos);
+                    BlockState loaded = loadedState(level, currentPos);
+                    if (loaded != null) {
+                        BlockState state = loaded;
                         if (state.getLightBlock(level, currentPos) < 15) {
                             for (Direction dir : Direction.values()) {
                                 BlockPos neighbor = currentPos.relative(dir);
@@ -305,8 +306,8 @@ public class LightPropagator {
     }
 
     public static boolean shouldRePlace(ServerLevel level, BlockPos pos, int targetLevel) {
-        if (!level.isLoaded(pos)) return false;
-        BlockState state = level.getBlockState(pos);
+        BlockState state = loadedState(level, pos);
+        if (state == null) return false;
         if (state.is(Blocks.LIGHT)) {
             return state.getValue(LightBlock.LEVEL) != targetLevel;
         }
@@ -314,9 +315,8 @@ public class LightPropagator {
     }
 
     public static boolean placeLight(ServerLevel level, BlockPos pos, int lightLevel) {
-        if (!level.isLoaded(pos)) return false;
-
-        BlockState state = level.getBlockState(pos);
+        BlockState state = loadedState(level, pos);
+        if (state == null) return false;
         int flags = Block.UPDATE_CLIENTS;
 
         if (state.is(Blocks.LIGHT)) {
@@ -349,8 +349,8 @@ public class LightPropagator {
     public static void removeLight(ServerLevel level, BlockPos pos) {
         // Not loaded: keep the persisted record so the chunk-load sweep can clean
         // the orphaned block when the chunk comes back.
-        if (!level.isLoaded(pos)) return;
-        BlockState state = level.getBlockState(pos);
+        BlockState state = loadedState(level, pos);
+        if (state == null) return;
         int flags = Block.UPDATE_CLIENTS;
 
         if (state.is(Blocks.LIGHT)) {
@@ -444,23 +444,33 @@ public class LightPropagator {
             Vec3 point = from.add(step.scale(travelled));
             BlockPos pos = BlockPos.containing(point);
             if (pos.equals(fromPos) || pos.equals(toPos)) continue;
-            if (!level.isLoaded(pos)) return false;
-
-            BlockState state = level.getBlockState(pos);
+            BlockState state = loadedState(level, pos);
+            if (state == null) return false;
             if (state.getLightBlock(level, pos) >= 15) return false;
         }
         return true;
     }
     
     public static boolean isValidLightSpot(Level level, BlockPos pos) {
-        if (!level.isLoaded(pos)) return false;
-        BlockState state = level.getBlockState(pos);
+        BlockState state = loadedState(level, pos);
+        if (state == null) return false;
         if (state.is(Blocks.LIGHT)) {
             // A light block is only a valid anchor if the mod placed it; foreign
             // ones (manually placed, other mods) must be left untouched.
             return level instanceof ServerLevel serverLevel && isPlacedByMod(serverLevel, pos);
         }
         return state.isAir() || (state.is(Blocks.WATER) && state.getFluidState().isSource());
+    }
+
+    /**
+     * The block at {@code pos} if its chunk is fully loaded right now, else null. {@code isLoaded} passes a chunk
+     * that is still on its way in (it only checks the chunk's ticket), and {@code getBlockState} then waits for it:
+     * with the server's chunk IO backed up (a pause-save, the chunks Valkyrien Skies loads around every ship) a
+     * single tick stalled for seconds - once 41 - near ships.
+     */
+    public static BlockState loadedState(Level level, BlockPos pos) {
+        net.minecraft.world.level.chunk.LevelChunk chunk = level.getChunkSource().getChunkNow(pos.getX() >> 4, pos.getZ() >> 4);
+        return chunk == null ? null : chunk.getBlockState(pos);
     }
 
     private static boolean isPlacedByMod(ServerLevel level, BlockPos pos) {

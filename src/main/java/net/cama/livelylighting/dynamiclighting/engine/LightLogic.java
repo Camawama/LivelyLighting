@@ -45,6 +45,24 @@ public class LightLogic {
     // first, so a ship docked in a heavily lit harbor stays bounded.
     private static final int MAX_WORLD_EMITTERS_PER_SHIP = 16;
 
+    /**
+     * How long (ticks) a light's anchor in a ship's shipyard is reused before it is searched for again. Finding one
+     * reads up to seven blocks for each of 343 cells and raycasts the best of them; done for every lamp near every
+     * ship each tick it cost about a tenth of the server's tick with a few dozen ships around. Where the anchor goes
+     * depends only on which shipyard cell the light falls in and on the ship's blocks there, so it is kept while the
+     * light stays in that cell (a ship moving the lamp into another cell searches again at once) and the anchor spot
+     * stays valid, and searched afresh at least this often for blocks changed nearby.
+     */
+    private static final int ANCHOR_REUSE_TICKS = 20;
+
+    /** A light's anchor in a ship's shipyard: the ship, the shipyard cell the light falls in, its level and kind. */
+    private record AnchorKey(long shipId, long sourceCell, int lightLevel, boolean isPlayer) {}
+
+    /** Where that light was anchored (null: nowhere), and when it was searched. */
+    private record CachedAnchor(BlockPos anchor, long time) {}
+
+    private static final Map<ResourceKey<Level>, Map<AnchorKey, CachedAnchor>> ANCHORS = new HashMap<>();
+
     private static final java.util.function.Predicate<net.minecraft.world.level.block.state.BlockState> LUMINOUS =
             state -> state.getLightEmission() > 0;
 
@@ -311,6 +329,11 @@ public class LightLogic {
         
         // Cleanup logic now scoped to the current dimension
         if (level.getGameTime() % 100 == 0) {
+            Map<AnchorKey, CachedAnchor> anchors = ANCHORS.get(dimension);
+            if (anchors != null) {
+                long now = level.getGameTime();
+                anchors.values().removeIf(cached -> now - cached.time() >= ANCHOR_REUSE_TICKS);
+            }
             Map<Integer, Map<String, LightData>> dimensionState = gameState.entityLitState.get(dimension);
             if (dimensionState != null) {
                 dimensionState.keySet().removeIf(id -> level.getEntity(id) == null);
@@ -839,6 +862,17 @@ public class LightLogic {
         if (shipSourceVec == null) return;
         double[] shipSource = {shipSourceVec.x, shipSourceVec.y, shipSourceVec.z};
 
+        // the anchor found for this light in this cell lately, still a valid spot: reused (ANCHOR_REUSE_TICKS)
+        Map<AnchorKey, CachedAnchor> anchors = ANCHORS.computeIfAbsent(level.dimension(), k -> new HashMap<>());
+        AnchorKey key = new AnchorKey(ship.id(), BlockPos.containing(shipSourceVec).asLong(), lightLevel, isPlayer);
+        long now = level.getGameTime();
+        CachedAnchor cached = anchors.get(key);
+        if (cached != null && now - cached.time() < ANCHOR_REUSE_TICKS
+                && (cached.anchor() == null || LightPropagator.isValidLightSpot(level, cached.anchor()))) {
+            if (cached.anchor() != null) addAnchor(cached.anchor(), shipSource, lightLevel, isPlayer, exactClusters);
+            return;
+        }
+
         // Search around the closest in-bounds point to the transformed source —
         // for a source on deck that's roughly its own position, for one away
         // from the ship it's the nearest hull surface. shipyardBlocks() is
@@ -864,19 +898,26 @@ public class LightLogic {
         candidates.sort(Comparator.comparingDouble(
                 pos -> pos.distToCenterSqr(shipSource[0], shipSource[1], shipSource[2])));
 
+        BlockPos found = null;
         for (BlockPos pos : candidates) {
             if (!LightPropagator.hasLightPath(level,
                     new Vec3(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5), shipSourceVec)) {
                 continue;
             }
-
-            double dist = Math.sqrt(pos.distToCenterSqr(shipSource[0], shipSource[1], shipSource[2]));
-            int dimmed = lightLevel - (int) Math.floor(Math.max(0, dist - 1.0));
-            if (dimmed > 0) {
-                exactClusters.computeIfAbsent(pos, k -> new LightCluster())
-                             .add(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, dimmed, isPlayer, dimmed);
-            }
+            found = pos;
+            addAnchor(pos, shipSource, lightLevel, isPlayer, exactClusters);
             break;
+        }
+        anchors.put(key, new CachedAnchor(found, now));
+    }
+
+    /** The light at its anchor, dimmed by the anchor's distance to the light's exact shipyard position. */
+    private static void addAnchor(BlockPos pos, double[] shipSource, int lightLevel, boolean isPlayer, Map<BlockPos, LightCluster> exactClusters) {
+        double dist = Math.sqrt(pos.distToCenterSqr(shipSource[0], shipSource[1], shipSource[2]));
+        int dimmed = lightLevel - (int) Math.floor(Math.max(0, dist - 1.0));
+        if (dimmed > 0) {
+            exactClusters.computeIfAbsent(pos, k -> new LightCluster())
+                         .add(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, dimmed, isPlayer, dimmed);
         }
     }
 
@@ -1042,7 +1083,8 @@ public class LightLogic {
      * cached for it.
      */
     private static Map<BlockPos, Integer> scanChunkForWorldEmitters(ServerLevel level, int chunkX, int chunkZ, Set<BlockPos> ownPlacedLights) {
-        net.minecraft.world.level.chunk.LevelChunk chunk = level.getChunkSource().getChunk(chunkX, chunkZ, false);
+        // loaded right now, not on its way in (getChunk(x, z, false) waits for one that is loading)
+        net.minecraft.world.level.chunk.LevelChunk chunk = level.getChunkSource().getChunkNow(chunkX, chunkZ);
         if (chunk == null) return null;
 
         Map<BlockPos, Integer> found = null;
@@ -1085,8 +1127,8 @@ public class LightLogic {
     private static boolean isAttachedToShipStructure(ServerLevel level, BlockPos pos) {
         for (net.minecraft.core.Direction dir : net.minecraft.core.Direction.values()) {
             BlockPos neighbor = pos.relative(dir);
-            if (!level.isLoaded(neighbor)) continue;
-            net.minecraft.world.level.block.state.BlockState state = level.getBlockState(neighbor);
+            net.minecraft.world.level.block.state.BlockState state = LightPropagator.loadedState(level, neighbor);
+            if (state == null) continue;
             if (!state.isAir() && !state.is(net.minecraft.world.level.block.Blocks.LIGHT)) {
                 return true;
             }

@@ -11,6 +11,11 @@ The client-performance update, driven by profiling (client block-light propagati
 - **No more world-join freeze** (`max_ignitions_per_tick`, default `10`, `0` = unlimited) — spawning into a world full of dynamic light sources used to ignite every one of them in the same tick: one giant block-update burst and a single-frame light-propagation spike on the client. Ignitions (unlit → lit transitions) are now budgeted per engine run, so the backlog drains as a quick cascade over a few ticks instead. Already-lit sources are completely unaffected — this only shapes bursts; players, TNT and creepers are never budgeted, so your own light and explosion flashes stay instant.
 - **Config files now upgrade themselves.** On load the file's structure is compared against the current schema: options added since the file was written are filled in at their defaults and written back, stale keys from removed options are dropped — all existing settings are kept, so deleting the config after updating the mod is never needed again. A config file that fails to parse no longer risks crashing the load; it's set aside as `livelylighting.json.broken` and a fresh default config is generated.
 
+### Fixed
+
+- **Lag spikes near Valkyrien Skies ships** (found in the owner's spark profiles, which showed the server waiting on chunks while lights were placed). The light engine reads only chunks that are already loaded now (`getChunkNow`): checking a spot for a light, whether it touches the ship's structure, and scanning a chunk for world lamps used to go through calls that, on the server, wait for a chunk that is still being loaded - and a ship's shipyard chunks are loaded and unloaded by VS as players come and go. A spot in a chunk that isn't loaded yet is simply not used this time.
+- **Less work for every light near a ship.** Finding where a held light's glow goes on a ship (up to 343 candidate spots, each with a line-of-sight check) was done again every tick for every light. The spot found is now kept for a second (`ANCHOR_REUSE_TICKS`, 20 ticks) per ship, light cell and brightness, and reused while it is still a valid spot; the cache is pruned with the other anchor bookkeeping.
+
 ## 0.4.1
 
 Full Valkyrien Skies light propagation, experimental ultra smoothing, and a round of smoothing fixes.
