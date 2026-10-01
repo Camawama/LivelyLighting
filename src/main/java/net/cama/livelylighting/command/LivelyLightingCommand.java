@@ -37,7 +37,9 @@ public class LivelyLightingCommand {
                 .executes(LivelyLightingCommand::reloadConfig))
             .then(Commands.literal("purge")
                 .requires(source -> source.hasPermission(2))
-                .executes(LivelyLightingCommand::purgeLights))
+                .executes(LivelyLightingCommand::purgeLights)
+                .then(Commands.literal("all")
+                    .executes(LivelyLightingCommand::purgeEveryLightBlock)))
             .then(Commands.literal("toggle")
                 .executes(LivelyLightingCommand::toggleSelf)
                 .then(Commands.argument("target", EntityArgument.entity())
@@ -72,8 +74,20 @@ public class LivelyLightingCommand {
     }
 
     private static int purgeLights(CommandContext<CommandSourceStack> context) {
-        LightManager.purgeAllLights(context.getSource().getServer());
-        context.getSource().sendSuccess(() -> Component.literal("Purged all light blocks."), true);
+        LightManager.PurgeResult result = LightManager.purgeAllLights(context.getSource().getServer(), false);
+        context.getSource().sendSuccess(() -> Component.literal(result.describe()), true);
+        return 1;
+    }
+
+    /**
+     * {@code /ll purge all}: besides the mod's own records, every minecraft:light block in the
+     * loaded chunks around the players and in the loaded ships' shipyards goes, recorded or not.
+     * For light blocks the mod lost track of (a crash before the records were saved); a light
+     * block placed on purpose in that area goes too, so the positions are logged.
+     */
+    private static int purgeEveryLightBlock(CommandContext<CommandSourceStack> context) {
+        LightManager.PurgeResult result = LightManager.purgeAllLights(context.getSource().getServer(), true);
+        context.getSource().sendSuccess(() -> Component.literal(result.describe()), true);
         return 1;
     }
 

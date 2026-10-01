@@ -63,6 +63,35 @@ public class LightLogic {
 
     private static final Map<ResourceKey<Level>, Map<AnchorKey, CachedAnchor>> ANCHORS = new HashMap<>();
 
+    /** Forgets every cached shipyard anchor (a purge). */
+    public static void clearCaches() {
+        ANCHORS.clear();
+    }
+
+    /**
+     * Whether a light source's owner is gone as far as this level is concerned: no entity with
+     * that id here (left the dimension, unloaded, despawned), one that is removed (dying,
+     * discarded, picked up), a spectator, or one switched off with /ll toggle. Such an entity's
+     * lit state and anchors are dropped, so nothing can freeze its light in place or put it back.
+     */
+    private static boolean sourceGone(ServerLevel level, LivelyLightingData data, int entityId) {
+        Entity entity = level.getEntity(entityId);
+        if (entity == null || entity.isRemoved()) return true;
+        if (entity instanceof Player player && player.isSpectator()) return true;
+        return data.isEntityDisabled(entity.getUUID());
+    }
+
+    /** Drops everything the engine remembers about one entity's sources; its light then fades as unwanted. */
+    static void forgetEntity(ServerLevel level, int entityId, LightGameState gameState) {
+        ResourceKey<Level> dimension = level.dimension();
+        Map<Integer, Map<String, LightData>> lit = gameState.entityLitState.get(dimension);
+        if (lit != null) lit.remove(entityId);
+        Map<Integer, Map<String, Integer>> established = gameState.sourceEstablished.get(dimension);
+        if (established != null) established.remove(entityId);
+        Map<Integer, Map<String, BlockPos>> anchors = gameState.lastSourcePos.get(dimension);
+        if (anchors != null) anchors.remove(entityId);
+    }
+
     private static final java.util.function.Predicate<net.minecraft.world.level.block.state.BlockState> LUMINOUS =
             state -> state.getLightEmission() > 0;
 
@@ -107,7 +136,11 @@ public class LightLogic {
         // 192 (~5.7e7 volume) clears both limits with margin, bounds the entity
         // range test, and light from a source beyond 192 blocks is imperceptible
         // anyway. (The entity scan itself no longer uses Level.getEntities.)
-        int viewDistance = Math.min(level.getServer().getPlayerList().getViewDistance() * 16, 192);
+        // A server that never set a view distance (a game-test server, some wrappers) reports 0,
+        // which would cull every entity: vanilla's default of 10 chunks stands in for it.
+        int viewChunks = level.getServer().getPlayerList().getViewDistance();
+        if (viewChunks <= 0) viewChunks = 10;
+        int viewDistance = Math.min(viewChunks * 16, 192);
 
         Set<Integer> processedIds = new HashSet<>();
 
@@ -290,7 +323,7 @@ public class LightLogic {
                 Map<BlockPos, Integer> emitters = shipEmitterCache.get(shipId);
                 long lastScan = shipEmitterScanTime.getOrDefault(shipId, Long.MIN_VALUE);
                 if (emitters == null || level.getGameTime() - lastScan >= SHIP_EMITTER_RESCAN_INTERVAL) {
-                    emitters = scanShipForEmitters(ship, ownPlacedLights);
+                    emitters = scanShipForEmitters(ship, ownPlacedLights, config.light_blocks_are_lamps);
                     shipEmitterCache.put(shipId, emitters);
                     shipEmitterScanTime.put(shipId, level.getGameTime());
                 }
@@ -323,7 +356,7 @@ public class LightLogic {
             // other ships' lamps collected above — ship-to-ship lighting is just
             // the world→ship projection fed with another ship's emitters.
             for (Map.Entry<Long, ShipRef> shipEntry : nearbyShips.entrySet()) {
-                projectWorldEmittersOntoShip(level, shipEntry.getValue(), shipEntry.getKey(), shipWorldEmitters, gameState, ownPlacedLights, worldUltraClusters);
+                projectWorldEmittersOntoShip(level, shipEntry.getValue(), shipEntry.getKey(), shipWorldEmitters, gameState, ownPlacedLights, config.light_blocks_are_lamps, worldUltraClusters);
             }
         }
         
@@ -334,14 +367,18 @@ public class LightLogic {
                 long now = level.getGameTime();
                 anchors.values().removeIf(cached -> now - cached.time() >= ANCHOR_REUSE_TICKS);
             }
+            // The sanity sweep, every five seconds: a source whose owner is gone, removed, a
+            // spectator or switched off keeps no state here, so its light can neither be frozen
+            // in place by the LOD path nor put back when someone breaks the block.
+            LivelyLightingData sweepData = LivelyLightingData.get(level);
             Map<Integer, Map<String, LightData>> dimensionState = gameState.entityLitState.get(dimension);
             if (dimensionState != null) {
-                dimensionState.keySet().removeIf(id -> level.getEntity(id) == null);
+                dimensionState.keySet().removeIf(id -> sourceGone(level, sweepData, id));
             }
 
             Map<Integer, Map<String, Integer>> dimEstablished = gameState.sourceEstablished.get(dimension);
             if (dimEstablished != null) {
-                dimEstablished.keySet().removeIf(id -> level.getEntity(id) == null);
+                dimEstablished.keySet().removeIf(id -> sourceGone(level, sweepData, id));
             }
             
             if (useVs) {
@@ -370,19 +407,19 @@ public class LightLogic {
             // Cleanup per-entity caches, scoped to this dimension only
             Map<Integer, Long> dimSoundTimes = gameState.lastSoundTime.get(dimension);
             if (dimSoundTimes != null) {
-                dimSoundTimes.keySet().removeIf(id -> level.getEntity(id) == null);
+                dimSoundTimes.keySet().removeIf(id -> sourceGone(level, sweepData, id));
             }
             Map<Integer, Map<String, BlockPos>> dimSourcePos = gameState.lastSourcePos.get(dimension);
             if (dimSourcePos != null) {
-                dimSourcePos.keySet().removeIf(id -> level.getEntity(id) == null);
+                dimSourcePos.keySet().removeIf(id -> sourceGone(level, sweepData, id));
             }
             Map<Integer, Vec3> dimLastPos = gameState.lastEntityPos.get(dimension);
             if (dimLastPos != null) {
-                dimLastPos.keySet().removeIf(id -> level.getEntity(id) == null);
+                dimLastPos.keySet().removeIf(id -> sourceGone(level, sweepData, id));
             }
             Map<Integer, Vec3> dimSmoothedVel = gameState.smoothedVelocity.get(dimension);
             if (dimSmoothedVel != null) {
-                dimSmoothedVel.keySet().removeIf(id -> level.getEntity(id) == null);
+                dimSmoothedVel.keySet().removeIf(id -> sourceGone(level, sweepData, id));
             }
         }
 
@@ -400,7 +437,11 @@ public class LightLogic {
         if (!processedIds.add(entity.getId())) return false;
 
         LivelyLightingData data = LivelyLightingData.get(level);
-        if (data.isEntityDisabled(entity.getUUID())) return false;
+        if (data.isEntityDisabled(entity.getUUID())) {
+            // switched off with /ll toggle: nothing of its light may linger or be frozen in place
+            forgetEntity(level, entity.getId(), gameState);
+            return false;
+        }
 
         // Velocity from position history: server-side getDeltaMovement is unreliable
         // for players, so derive it from where the entity was last time we ran.
@@ -507,6 +548,10 @@ public class LightLogic {
      * normally so its light state can't silently rot.
      */
     private static boolean freezeEntityLights(ServerLevel level, Entity entity, LightGameState gameState, Map<BlockPos, LightCluster> exactClusters) {
+        if (entity.isRemoved() || LivelyLightingData.get(level).isEntityDisabled(entity.getUUID())) {
+            forgetEntity(level, entity.getId(), gameState);
+            return false;
+        }
         Map<Integer, Map<String, BlockPos>> dimSourcePos = gameState.lastSourcePos.get(level.dimension());
         if (dimSourcePos == null) return false;
         Map<String, BlockPos> anchors = dimSourcePos.get(entity.getId());
@@ -974,7 +1019,7 @@ public class LightLogic {
      * without reading a single block. All sources compete in one ranking under
      * the same per-ship cap.
      */
-    private static void projectWorldEmittersOntoShip(ServerLevel level, ShipRef ship, long shipId, List<ShipWorldEmitter> shipEmitters, LightGameState gameState, Set<BlockPos> ownPlacedLights, Map<BlockPos, LightCluster> exactClusters) {
+    private static void projectWorldEmittersOntoShip(ServerLevel level, ShipRef ship, long shipId, List<ShipWorldEmitter> shipEmitters, LightGameState gameState, Set<BlockPos> ownPlacedLights, boolean lightBlocksAreLamps, Map<BlockPos, LightCluster> exactClusters) {
         AABB worldBox = ship.worldAabb();
         if (worldBox == null) return;
         double[] worldBounds = {worldBox.minX, worldBox.minY, worldBox.minZ, worldBox.maxX, worldBox.maxY, worldBox.maxZ};
@@ -1015,7 +1060,7 @@ public class LightLogic {
                 long chunkKey = net.minecraft.world.level.ChunkPos.asLong(chunkX, chunkZ);
                 LightGameState.EmitterScan scan = chunkCache.get(chunkKey);
                 if (scan == null || now - scan.time >= SHIP_EMITTER_RESCAN_INTERVAL) {
-                    Map<BlockPos, Integer> found = scanChunkForWorldEmitters(level, chunkX, chunkZ, ownPlacedLights);
+                    Map<BlockPos, Integer> found = scanChunkForWorldEmitters(level, chunkX, chunkZ, ownPlacedLights, lightBlocksAreLamps);
                     if (found != null) {
                         scan = new LightGameState.EmitterScan(now, found);
                         chunkCache.put(chunkKey, scan);
@@ -1066,10 +1111,14 @@ public class LightLogic {
      * recorded for as long as it exists, while player-placed light blocks
      * (e.g. wildcard emitters) are absent and still count as real emitters.
      */
-    private static Map<BlockPos, Integer> scanShipForEmitters(ShipRef ship, Set<BlockPos> ownPlacedLights) {
+    private static Map<BlockPos, Integer> scanShipForEmitters(ShipRef ship, Set<BlockPos> ownPlacedLights, boolean lightBlocksAreLamps) {
         Map<BlockPos, Integer> emitters = new HashMap<>();
         ship.forEachBlock(LUMINOUS, (pos, state) -> {
-            if (state.is(net.minecraft.world.level.block.Blocks.LIGHT) && ownPlacedLights.contains(pos)) return;
+            // A light block is a lamp only if the config says so, and never one the mod placed.
+            // The records are the mod's memory of its own blocks, and a crash can lose them while
+            // the blocks stay: such an orphan on a ship must not become a lamp that projects light
+            // into the world for good, which no purge of the records can reach.
+            if (state.is(net.minecraft.world.level.block.Blocks.LIGHT) && (!lightBlocksAreLamps || ownPlacedLights.contains(pos))) return;
             emitters.put(pos.immutable(), state.getLightEmission());
         });
         return emitters;
@@ -1082,7 +1131,7 @@ public class LightLogic {
      * distinction). Returns null when the chunk isn't loaded, so nothing gets
      * cached for it.
      */
-    private static Map<BlockPos, Integer> scanChunkForWorldEmitters(ServerLevel level, int chunkX, int chunkZ, Set<BlockPos> ownPlacedLights) {
+    private static Map<BlockPos, Integer> scanChunkForWorldEmitters(ServerLevel level, int chunkX, int chunkZ, Set<BlockPos> ownPlacedLights, boolean lightBlocksAreLamps) {
         // loaded right now, not on its way in (getChunk(x, z, false) waits for one that is loading)
         net.minecraft.world.level.chunk.LevelChunk chunk = level.getChunkSource().getChunkNow(chunkX, chunkZ);
         if (chunk == null) return null;
@@ -1107,7 +1156,7 @@ public class LightLogic {
                         if (emission <= 0) continue;
 
                         BlockPos pos = new BlockPos(baseX + x, sectionMinY + y, baseZ + z);
-                        if (state.is(net.minecraft.world.level.block.Blocks.LIGHT) && ownPlacedLights.contains(pos)) continue;
+                        if (state.is(net.minecraft.world.level.block.Blocks.LIGHT) && (!lightBlocksAreLamps || ownPlacedLights.contains(pos))) continue;
 
                         if (found == null) found = new HashMap<>();
                         found.put(pos, emission);

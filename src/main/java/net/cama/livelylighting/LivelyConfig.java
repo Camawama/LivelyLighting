@@ -91,6 +91,11 @@ public class LivelyConfig {
     ));
     
     public boolean vs_support = false; // Disabled by default due to instability
+    // Whether light blocks (minecraft:light) found on ships and in the world count as lamps that
+    // light nearby ships and the world around a ship. Off, only genuinely luminous blocks do: a
+    // light block of the mod's own left behind by a crash (its record lost with the unsaved data)
+    // can otherwise keep projecting light forever, which no purge of the records can reach.
+    public boolean light_blocks_are_lamps = false;
 
     public Experimental experimental = new Experimental();
 

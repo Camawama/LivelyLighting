@@ -346,12 +346,14 @@ public class LightPropagator {
         return false;
     }
 
-    public static void removeLight(ServerLevel level, BlockPos pos) {
+    /** Removes the light block at {@code pos} and its record. True when a light block was there and went. */
+    public static boolean removeLight(ServerLevel level, BlockPos pos) {
         // Not loaded: keep the persisted record so the chunk-load sweep can clean
         // the orphaned block when the chunk comes back.
         BlockState state = loadedState(level, pos);
-        if (state == null) return;
+        if (state == null) return false;
         int flags = Block.UPDATE_CLIENTS;
+        boolean removed = false;
 
         if (state.is(Blocks.LIGHT)) {
             if (state.getValue(LightBlock.WATERLOGGED)) {
@@ -359,8 +361,10 @@ public class LightPropagator {
             } else {
                 level.setBlock(pos, Blocks.AIR.defaultBlockState(), flags);
             }
+            removed = true;
         }
         LivelyLightingData.get(level).removePlacedLight(level.dimension(), pos);
+        return removed;
     }
     
     public static BlockPos findValidLightPos(Level level, BlockPos eyePos, BlockPos feetPos, int radius) {

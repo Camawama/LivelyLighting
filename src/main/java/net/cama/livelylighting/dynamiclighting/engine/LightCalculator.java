@@ -339,6 +339,11 @@ public class LightCalculator {
         if (stack.isEmpty()) return EMPTY_LIGHT_DATA;
         
         Item item = stack.getItem();
+        // The light block's own item is the tool for seeing and editing light blocks. A player
+        // holding it must never become a light source: every light block they broke came straight
+        // back at their eyes, and a purge "came back" the next tick. Hard-coded on top of
+        // auto_detect_blacklist, which a config file written before that default was added lacks.
+        if (item == net.minecraft.world.item.Items.LIGHT) return EMPTY_LIGHT_DATA;
         LightData data = itemCache.get(item);
         
         if (data == null) {

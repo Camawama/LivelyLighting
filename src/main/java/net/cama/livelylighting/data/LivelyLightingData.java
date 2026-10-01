@@ -18,7 +18,7 @@ import java.util.Set;
 import java.util.UUID;
 
 public class LivelyLightingData extends SavedData {
-    private static final String DATA_NAME = "lively_lighting_data";
+    public static final String DATA_NAME = "lively_lighting_data";
 
     private final Set<UUID> disabledEntities = new HashSet<>();
     private final Map<UUID, Integer> forcedLightLevels = new HashMap<>();
