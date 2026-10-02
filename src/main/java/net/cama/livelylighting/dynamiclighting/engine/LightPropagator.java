@@ -9,6 +9,8 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.LightBlock;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.*;
@@ -317,6 +319,9 @@ public class LightPropagator {
     public static boolean placeLight(ServerLevel level, BlockPos pos, int lightLevel) {
         BlockState state = loadedState(level, pos);
         if (state == null) return false;
+        // A chunk a block write would crash in (no heightmaps: see writableChunk) gets no light;
+        // returning false drops the position from this pass's plan.
+        if (writableChunk(level, pos) == null) return false;
         int flags = Block.UPDATE_CLIENTS;
 
         if (state.is(Blocks.LIGHT)) {
@@ -328,17 +333,17 @@ public class LightPropagator {
             }
             int currentLevel = state.getValue(LightBlock.LEVEL);
             if (currentLevel != lightLevel) {
-                level.setBlock(pos, state.setValue(LightBlock.LEVEL, lightLevel), flags);
+                return trySetBlock(level, pos, state.setValue(LightBlock.LEVEL, lightLevel), flags);
             }
             return true;
         }
 
         if (state.isAir()) {
-            level.setBlock(pos, Blocks.LIGHT.defaultBlockState().setValue(LightBlock.LEVEL, lightLevel), flags);
+            if (!trySetBlock(level, pos, Blocks.LIGHT.defaultBlockState().setValue(LightBlock.LEVEL, lightLevel), flags)) return false;
             LivelyLightingData.get(level).addPlacedLight(level.dimension(), pos);
             return true;
         } else if (state.getFluidState().isSource() && state.is(Blocks.WATER)) {
-            level.setBlock(pos, Blocks.LIGHT.defaultBlockState().setValue(LightBlock.LEVEL, lightLevel).setValue(LightBlock.WATERLOGGED, true), flags);
+            if (!trySetBlock(level, pos, Blocks.LIGHT.defaultBlockState().setValue(LightBlock.LEVEL, lightLevel).setValue(LightBlock.WATERLOGGED, true), flags)) return false;
             LivelyLightingData.get(level).addPlacedLight(level.dimension(), pos);
             return true;
         }
@@ -356,11 +361,13 @@ public class LightPropagator {
         boolean removed = false;
 
         if (state.is(Blocks.LIGHT)) {
-            if (state.getValue(LightBlock.WATERLOGGED)) {
-                level.setBlock(pos, Blocks.WATER.defaultBlockState(), flags);
-            } else {
-                level.setBlock(pos, Blocks.AIR.defaultBlockState(), flags);
-            }
+            // A light block in a chunk a write would crash in stays, and so does its record, so a
+            // later sweep (or the chunk's next load) can take it out. A shipyard chunk Valkyrien
+            // Skies cleared has no light block left in it, so its record is simply dropped below.
+            if (writableChunk(level, pos) == null) return false;
+            BlockState replacement = state.getValue(LightBlock.WATERLOGGED)
+                    ? Blocks.WATER.defaultBlockState() : Blocks.AIR.defaultBlockState();
+            if (!trySetBlock(level, pos, replacement, flags)) return false;
             removed = true;
         }
         LivelyLightingData.get(level).removePlacedLight(level.dimension(), pos);
@@ -475,6 +482,83 @@ public class LightPropagator {
     public static BlockState loadedState(Level level, BlockPos pos) {
         net.minecraft.world.level.chunk.LevelChunk chunk = level.getChunkSource().getChunkNow(pos.getX() >> 4, pos.getZ() >> 4);
         return chunk == null ? null : chunk.getBlockState(pos);
+    }
+
+    /** The heightmaps {@code LevelChunk.setBlockState} updates on every write; one missing is a NullPointerException. */
+    private static final Heightmap.Types[] WRITE_HEIGHTMAPS = {
+            Heightmap.Types.MOTION_BLOCKING, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+            Heightmap.Types.OCEAN_FLOOR, Heightmap.Types.WORLD_SURFACE};
+
+    /**
+     * The chunk at {@code pos} if the light engine may write a block there: loaded right now (never
+     * loads or generates one) and with every heightmap a block write updates. Null otherwise.
+     *
+     * <p>Valkyrien Skies 2.4.11 empties a shipyard chunk's heightmaps when a ship changes dimension
+     * ({@code MixinLevelChunk.clearChunk}, called from {@code moveTerrainAcrossDimensions}, for
+     * instance VS Genesis carrying a ship into space) and never primes them again, while the chunk
+     * stays loaded until it unloads: any {@code setBlock} there throws in
+     * {@code LevelChunk.setBlockState}. A light projected onto that ship went on being placed into
+     * its old chunks, which crashed the owner's server twice on 2026-10-01 (a gasoline explosion,
+     * a ship forced through lava).</p>
+     */
+    public static LevelChunk writableChunk(Level level, BlockPos pos) {
+        LevelChunk chunk = level.getChunkSource().getChunkNow(pos.getX() >> 4, pos.getZ() >> 4);
+        if (chunk == null) return null;
+        for (Heightmap.Types type : WRITE_HEIGHTMAPS) {
+            if (!chunk.hasPrimedHeightmap(type)) {
+                noteUnwritable(level, pos, chunk, "no " + type + " heightmap", null);
+                return null;
+            }
+        }
+        return chunk;
+    }
+
+    /**
+     * {@code level.setBlock} that can't take the server down: anything it throws is logged (at most
+     * once a minute) and reported as false, so the caller drops the position from its plan. True when
+     * the write went through.
+     */
+    public static boolean trySetBlock(ServerLevel level, BlockPos pos, BlockState state, int flags) {
+        try {
+            level.setBlock(pos, state, flags);
+            return true;
+        } catch (RuntimeException e) {
+            noteUnwritable(level, pos, level.getChunkSource().getChunkNow(pos.getX() >> 4, pos.getZ() >> 4),
+                    "setBlock threw " + e, e);
+            return false;
+        }
+    }
+
+    private static final org.slf4j.Logger LOGGER = com.mojang.logging.LogUtils.getLogger();
+    private static long lastUnwritableLogMs = Long.MIN_VALUE / 2;
+    private static int unwritableSinceLog;
+
+    /** How many positions the engine skipped as unwritable since start (tests read it). */
+    public static int unwritableTotal;
+
+    private static void noteUnwritable(Level level, BlockPos pos, LevelChunk chunk, String why, Throwable error) {
+        unwritableSinceLog++;
+        unwritableTotal++;
+        long now = System.currentTimeMillis();
+        if (now - lastUnwritableLogMs < 60_000L) return;
+        StringBuilder status = new StringBuilder();
+        if (chunk == null) {
+            status.append("not loaded");
+        } else {
+            status.append(chunk.getFullStatus());
+            for (Heightmap.Types type : WRITE_HEIGHTMAPS) {
+                if (!chunk.hasPrimedHeightmap(type)) status.append(", no ").append(type);
+            }
+        }
+        if (error != null) {
+            LOGGER.warn("[LivelyLighting] Skipped a light at {} in {} ({}; chunk: {}); {} such position(s) since the last warning",
+                    pos.toShortString(), level.dimension().location(), why, status, unwritableSinceLog, error);
+        } else {
+            LOGGER.warn("[LivelyLighting] Skipped a light at {} in {} ({}; chunk: {}); {} such position(s) since the last warning",
+                    pos.toShortString(), level.dimension().location(), why, status, unwritableSinceLog);
+        }
+        lastUnwritableLogMs = now;
+        unwritableSinceLog = 0;
     }
 
     private static boolean isPlacedByMod(ServerLevel level, BlockPos pos) {
