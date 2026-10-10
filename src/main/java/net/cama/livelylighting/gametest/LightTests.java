@@ -4,6 +4,7 @@ import com.mojang.authlib.GameProfile;
 import net.cama.livelylighting.LivelyLighting;
 import net.cama.livelylighting.data.LivelyLightingData;
 import net.cama.livelylighting.dynamiclighting.engine.LightManager;
+import net.cama.livelylighting.dynamiclighting.engine.LightPropagator;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.BeforeBatch;
 import net.minecraft.gametest.framework.GameTest;
@@ -29,6 +30,10 @@ import net.minecraft.world.level.portal.PortalInfo;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -111,6 +116,46 @@ public class LightTests {
     }
 
 
+
+    /**
+     * A small ship's lights on its turn (small_ship_updates_per_tick) go to the wanted state in one step: a light in
+     * {@code applyChanges}' immediate set takes its level at once and is gone at once, while one beside it fades in
+     * and out by the smoothing rates as ever.
+     */
+    @GameTest(template = PLATFORM, timeoutTicks = 100)
+    public static void anImmediateLightTakesItsLevelInOneStep(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        BlockPos atOnce = helper.absolutePos(new BlockPos(6, AIR + 3, 18));
+        BlockPos smoothed = helper.absolutePos(new BlockPos(18, AIR + 3, 6));
+        Map<BlockPos, Integer> current = new HashMap<>();
+        Set<BlockPos> currentPlayer = new HashSet<>();
+        Map<BlockPos, Integer> wanted = new HashMap<>(Map.of(atOnce, 12, smoothed, 12));
+        Set<BlockPos> immediate = Set.of(atOnce);
+        try {
+            LightPropagator.applyChanges(level, current, currentPlayer, wanted, new HashSet<>(), new HashMap<>(), true, true, 2, 2, immediate);
+            if (placedLevel(level, atOnce) != 12) helper.fail("the immediate light is at " + placedLevel(level, atOnce) + " after one step, not 12");
+            if (placedLevel(level, smoothed) != 2) helper.fail("the smoothed light is at " + placedLevel(level, smoothed) + " after one step, not 2 (fade_in_rate)");
+            for (int i = 0; i < 6; i++) {
+                LightPropagator.applyChanges(level, current, currentPlayer, wanted, new HashSet<>(), new HashMap<>(), true, true, 2, 2, immediate);
+            }
+            if (placedLevel(level, smoothed) != 12) helper.fail("the smoothed light never reached 12: " + placedLevel(level, smoothed));
+            wanted.clear();
+            LightPropagator.applyChanges(level, current, currentPlayer, wanted, new HashSet<>(), new HashMap<>(), true, true, 2, 2, immediate);
+            if (placedLevel(level, atOnce) != 0) helper.fail("the immediate light is still there a step after it stopped being wanted: " + placedLevel(level, atOnce));
+            if (placedLevel(level, smoothed) != 10) helper.fail("the smoothed light is at " + placedLevel(level, smoothed) + " a step after it stopped being wanted, not 10 (trail_decay_rate)");
+            if (current.containsKey(atOnce) || !current.containsKey(smoothed)) helper.fail("the engine's record doesn't match the blocks: " + current);
+        } finally {
+            for (BlockPos pos : new BlockPos[]{atOnce, smoothed}) {
+                if (level.getBlockState(pos).is(Blocks.LIGHT)) level.setBlock(pos, Blocks.AIR.defaultBlockState(), 3);
+            }
+        }
+        helper.succeed();
+    }
+
+    private static int placedLevel(ServerLevel level, BlockPos pos) {
+        BlockState state = level.getBlockState(pos);
+        return state.is(Blocks.LIGHT) ? state.getValue(LightBlock.LEVEL) : 0;
+    }
 
     /** A held torch lights its holder; the light goes when the holder is discarded (a dropped item picked up, a mob despawned). */
     @GameTest(template = PLATFORM, timeoutTicks = 200)

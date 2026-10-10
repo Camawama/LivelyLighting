@@ -139,6 +139,14 @@ public class LightPropagator {
     }
     
     public static void applyChanges(ServerLevel level, Map<BlockPos, Integer> currentLights, Set<BlockPos> currentPlayerLights, Map<BlockPos, Integer> desiredLights, Set<BlockPos> desiredPlayerLights, Map<BlockPos, Integer> desiredCarry, boolean smoothing, boolean smoothingAllEntities, int decayRate, int fadeInRate) {
+        applyChanges(level, currentLights, currentPlayerLights, desiredLights, desiredPlayerLights, desiredCarry, smoothing, smoothingAllEntities, decayRate, fadeInRate, Set.of());
+    }
+
+    /**
+     * As above; a position in {@code immediate} takes its desired level at once, with no fade in either direction
+     * (a small ship's lights on its turn, see {@code small_ship_updates_per_tick}).
+     */
+    public static void applyChanges(ServerLevel level, Map<BlockPos, Integer> currentLights, Set<BlockPos> currentPlayerLights, Map<BlockPos, Integer> desiredLights, Set<BlockPos> desiredPlayerLights, Map<BlockPos, Integer> desiredCarry, boolean smoothing, boolean smoothingAllEntities, int decayRate, int fadeInRate, Set<BlockPos> immediate) {
         Map<BlockPos, Integer> nextCurrentLights = new HashMap<>();
         Set<BlockPos> nextCurrentPlayerLights = new HashSet<>();
 
@@ -167,7 +175,9 @@ public class LightPropagator {
             }
 
             int newLevel;
-            if (!wasCurrent) {
+            if (immediate.contains(pos)) {
+                newLevel = desiredLevel;
+            } else if (!wasCurrent) {
                 // Case 1: New light. Fade in from the light this position already
                 // receives, never from zero: block light combines by max, so fading
                 // in from zero would visibly dim the area before brightening it.
@@ -207,7 +217,7 @@ public class LightPropagator {
             boolean wasPlayerLight = currentPlayerLights.contains(pos);
 
             int newLevel = 0;
-            if (smoothing && (smoothingAllEntities || wasPlayerLight)) {
+            if (smoothing && (smoothingAllEntities || wasPlayerLight) && !immediate.contains(pos)) {
                 int shadowNow = shadowLevel(pos, placedThisTick);
                 int faded = currentLevel - decayRate;
                 // Sync with the incoming light: never fade below what the live

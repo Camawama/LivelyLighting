@@ -276,8 +276,11 @@ public class LightCalculator {
         return result;
     }
 
+    /** A burning entity's light level, and a burning ship's (ship_fire_lights). */
+    public static final int BURNING_LIGHT_LEVEL = 15;
+
     private static LightData computeEntityLightLevel(Entity entity, ServerLevel level, LivelyConfig config) {
-        if (config.burning_entity_lighting && entity.isOnFire()) return new LightData(15, false, FLAME_PARTICLES, FLAME_SOUNDS, FLAME_EXTINGUISH_SOUNDS);
+        if (config.burning_entity_lighting && entity.isOnFire()) return new LightData(BURNING_LIGHT_LEVEL, false, FLAME_PARTICLES, FLAME_SOUNDS, FLAME_EXTINGUISH_SOUNDS);
         
         if (config.glowing_effect_lighting && entity instanceof LivingEntity living && living.hasEffect(MobEffects.GLOWING)) {
             return new LightData(6, false, Collections.emptyList(), Collections.emptyList(), Collections.emptyList());

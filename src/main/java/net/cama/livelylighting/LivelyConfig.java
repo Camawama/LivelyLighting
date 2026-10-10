@@ -91,11 +91,29 @@ public class LivelyConfig {
     ));
     
     public boolean vs_support = false; // Disabled by default due to instability
+    // Small ships take turns when many of them need their light changed at once. A light near a
+    // ship keeps a light block in that ship's shipyard and re-levels or moves it as the light or
+    // the ship moves: a block change and a light update on every client, per ship. A held torch
+    // walked past hundreds of one-block ships became hundreds of those a second, and the client
+    // spent its frames on them (lag, and the torch's own light stuttering with it). So of the
+    // ships no larger than small_ship_max_blocks (the volume of the box their blocks fill), at
+    // most small_ship_updates_per_tick have their lights changed in one engine run: the ones whose
+    // light is most wrong and nearest a player first, each brought fully up to date in that one
+    // go (no fade steps). The others keep exactly the light they have until their turn. While no
+    // more small ships than that need a change in the same run, nothing is deferred and nothing
+    // differs. Lights in the world (the player's own included) and larger ships are never
+    // deferred. 0 = no budget.
+    public int small_ship_updates_per_tick = 6;
+    public int small_ship_max_blocks = 8;
     // Whether light blocks (minecraft:light) found on ships and in the world count as lamps that
     // light nearby ships and the world around a ship. Off, only genuinely luminous blocks do: a
     // light block of the mod's own left behind by a crash (its record lost with the unsaved data)
     // can otherwise keep projecting light forever, which no purge of the records can reach.
     public boolean light_blocks_are_lamps = false;
+    // A Valkyrien Skies ship on fire (Camafy's ship fire) is a light like a burning entity: up to
+    // four lights at its burning parts (spread over it when it all burns), lighting the world round
+    // it and its own blocks as it moves, gone within a second of the fire going out. Needs vs_support.
+    public boolean ship_fire_lights = true;
 
     public Experimental experimental = new Experimental();
 

@@ -73,7 +73,11 @@ public class LightGameState {
     // anchor block sideways, which caused visible flashing when turning.
     public final Map<ResourceKey<Level>, Map<Integer, Vec3>> smoothedVelocity = new HashMap<>();
 
+    // Maps Dimension -> (ShipID -> engine runs a small ship has waited for its turn; see small_ship_updates_per_tick).
+    public final Map<ResourceKey<Level>, Map<Long, Integer>> shipLightWait = new HashMap<>();
+
     public void clear() {
+        shipLightWait.clear();
         levelLights.clear();
         playerLights.clear();
         shipEmitterCache.clear();

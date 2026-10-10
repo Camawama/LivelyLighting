@@ -66,6 +66,7 @@ public class LightLogic {
     /** Forgets every cached shipyard anchor (a purge). */
     public static void clearCaches() {
         ANCHORS.clear();
+        FIRE_SEEN.clear();
     }
 
     /**
@@ -94,6 +95,139 @@ public class LightLogic {
 
     private static final java.util.function.Predicate<net.minecraft.world.level.block.state.BlockState> LUMINOUS =
             state -> state.getLightEmission() > 0;
+
+    /**
+     * Counters for tests and the pack harness: {runs with a small ship wanting a change, small ships that wanted one,
+     * ships brought up to date on a turn, ships held waiting}.
+     */
+    private static final long[] SHIP_BUDGET_STATS = new long[4];
+
+    public static long[] shipBudgetStats() {
+        return SHIP_BUDGET_STATS.clone();
+    }
+
+    /**
+     * Small ships take turns when more of them need their lights changed in this run than
+     * {@code small_ship_updates_per_tick}: every changed light block in a shipyard is a block change, a light update
+     * and a rebuilt chunk on each client, and a torch carried past hundreds of one-block ships asked for hundreds a
+     * second.
+     *
+     * Works on the finished plan: the lights wanted this run against the ones placed, shipyard positions grouped by
+     * their ship. A small ship (its blocks fill a box of at most {@code small_ship_max_blocks}) whose lights would
+     * change is a candidate; its error is the largest level difference among its positions. With no more candidates
+     * than the budget nothing is touched (the plan is applied as ever, fades included). Otherwise the candidates with
+     * the highest score (error, weighed by the distance to the nearest player: 1 within 8 blocks, 8 / distance beyond;
+     * plus a tenth for every run already waited, so none starves) take the turns, and their lights go to the wanted
+     * state in one step (the returned positions: {@code applyChanges}' immediate set). For every other candidate the
+     * plan is rewritten to what is placed now, so not one of its blocks changes this run.
+     *
+     * Lights in the world and on larger ships are never touched here.
+     */
+    private static Set<BlockPos> budgetSmallShips(ServerLevel level, LivelyConfig config, LightGameState gameState,
+                                                  Map<BlockPos, Integer> current, Set<BlockPos> currentPlayer,
+                                                  Map<BlockPos, Integer> desired, Set<BlockPos> desiredPlayer) {
+        Map<Long, Integer> waited = gameState.shipLightWait.computeIfAbsent(level.dimension(), k -> new HashMap<>());
+        int budget = config.small_ship_updates_per_tick;
+        if (budget <= 0 || Boolean.getBoolean("livelylighting.noShipBudget")) {
+            waited.clear();
+            return Set.of();
+        }
+
+        // the planned and the placed lights that lie in a shipyard, by ship (one ship lookup per chunk)
+        Map<Long, ShipRef> chunkShips = new HashMap<>();
+        Map<Long, ShipRef> ships = new HashMap<>();
+        Map<Long, List<BlockPos>> byShip = new HashMap<>();
+        for (int pass = 0; pass < 2; pass++) {
+            for (BlockPos pos : (pass == 0 ? current : desired).keySet()) {
+                if (pass == 1 && current.containsKey(pos)) continue;
+                if (!Ships.inShipyard(level, pos)) continue;
+                long chunkKey = net.minecraft.world.level.ChunkPos.asLong(pos.getX() >> 4, pos.getZ() >> 4);
+                ShipRef ship = chunkShips.get(chunkKey);
+                if (ship == null && !chunkShips.containsKey(chunkKey)) {
+                    ship = Ships.managing(level, pos);
+                    chunkShips.put(chunkKey, ship);
+                }
+                if (ship == null) continue;
+                ships.putIfAbsent(ship.id(), ship);
+                byShip.computeIfAbsent(ship.id(), k -> new ArrayList<>()).add(pos);
+            }
+        }
+
+        // the small ships whose lights would change this run
+        int maxBlocks = Math.max(1, config.small_ship_max_blocks);
+        List<long[]> candidates = new ArrayList<>(); // {ship id, error}
+        for (Map.Entry<Long, List<BlockPos>> entry : byShip.entrySet()) {
+            BoundingBox blocks = ships.get(entry.getKey()).shipyardBlocks();
+            if (blocks == null) continue;
+            if ((long) blocks.getXSpan() * blocks.getYSpan() * blocks.getZSpan() > maxBlocks) continue;
+            int error = 0;
+            for (BlockPos pos : entry.getValue()) {
+                error = Math.max(error, Math.abs(desired.getOrDefault(pos, 0) - current.getOrDefault(pos, 0)));
+            }
+            if (error > 0) candidates.add(new long[]{entry.getKey(), error});
+        }
+        if (candidates.isEmpty()) {
+            waited.clear();
+            return Set.of();
+        }
+        SHIP_BUDGET_STATS[0]++;
+        SHIP_BUDGET_STATS[1] += candidates.size();
+        if (candidates.size() <= budget) {
+            waited.clear();
+            return Set.of();
+        }
+
+        Map<Long, Double> score = new HashMap<>();
+        List<? extends Player> players = level.players();
+        for (long[] candidate : candidates) {
+            AABB box = ships.get(candidate[0]).worldAabb();
+            double nearest = Double.MAX_VALUE;
+            if (box != null) {
+                for (Player player : players) {
+                    if (player.isSpectator()) continue;
+                    double dx = Math.max(0, Math.max(box.minX - player.getX(), player.getX() - box.maxX));
+                    double dy = Math.max(0, Math.max(box.minY - player.getEyeY(), player.getEyeY() - box.maxY));
+                    double dz = Math.max(0, Math.max(box.minZ - player.getZ(), player.getZ() - box.maxZ));
+                    nearest = Math.min(nearest, Math.max(dx, Math.max(dy, dz)));
+                }
+            }
+            double weight = nearest <= 8.0 ? 1.0 : 8.0 / nearest;
+            score.put(candidate[0], candidate[1] * weight + 0.1 * waited.getOrDefault(candidate[0], 0));
+        }
+        // the highest score first; the ship id settles ties, so the order never depends on map iteration
+        candidates.sort((a, b) -> {
+            int byScore = Double.compare(score.get(b[0]), score.get(a[0]));
+            return byScore != 0 ? byScore : Long.compare(a[0], b[0]);
+        });
+
+        Set<BlockPos> immediate = new HashSet<>();
+        Map<Long, Integer> stillWaiting = new HashMap<>();
+        for (int i = 0; i < candidates.size(); i++) {
+            long id = candidates.get(i)[0];
+            List<BlockPos> positions = byShip.get(id);
+            if (i < budget) {
+                immediate.addAll(positions);
+                continue;
+            }
+            stillWaiting.put(id, waited.getOrDefault(id, 0) + 1);
+            for (BlockPos pos : positions) {
+                int placed = current.getOrDefault(pos, 0);
+                if (placed > 0) {
+                    desired.put(pos, placed);
+                    if (currentPlayer.contains(pos)) desiredPlayer.add(pos);
+                    else desiredPlayer.remove(pos);
+                } else {
+                    desired.remove(pos);
+                    desiredPlayer.remove(pos);
+                }
+            }
+        }
+        SHIP_BUDGET_STATS[2] += Math.min(budget, candidates.size());
+        SHIP_BUDGET_STATS[3] += stillWaiting.size();
+        waited.clear();
+        waited.putAll(stillWaiting);
+        return immediate;
+    }
 
     // A ship lamp's world-space position this tick, collected in pass 1 of the VS
     // section and fed to every OTHER ship's projection for ship-to-ship lighting.
@@ -350,6 +484,12 @@ public class LightLogic {
 
                     shipWorldEmitters.add(new ShipWorldEmitter(shipId, worldPos.x, worldPos.y, worldPos.z, emission));
                 }
+
+                // a ship on fire (Camafy's ship fire) is a light like a burning entity (ship_fire_lights)
+                if (config.ship_fire_lights && sourceCount < maxSources) {
+                    sourceCount += addShipFireLights(level, ship, shipId, mergeDistance, maxSources - sourceCount,
+                            worldClusters, worldUltraClusters, shipWorldEmitters);
+                }
             }
 
             // Pass 2: light each ship from the static world's lamps and from the
@@ -366,6 +506,11 @@ public class LightLogic {
             if (anchors != null) {
                 long now = level.getGameTime();
                 anchors.values().removeIf(cached -> now - cached.time() >= ANCHOR_REUSE_TICKS);
+            }
+            Map<Long, Long> fireSeen = FIRE_SEEN.get(dimension);
+            if (fireSeen != null) {
+                // ships out of reach of every player, or put out while out of reach
+                fireSeen.keySet().removeIf(id -> !net.camacraft.camafy.compat.vs.ShipFire.burning(level, id));
             }
             // The sanity sweep, every five seconds: a source whose owner is gone, removed, a
             // spectator or switched off keeps no state here, so its light can neither be frozen
@@ -430,7 +575,11 @@ public class LightLogic {
         // 3. Apply Changes. Ship-projected lights live in the world like any other
         // source, so the normal fade/removal path cleans them up when the ship
         // moves away or unloads.
-        LightPropagator.applyChanges(level, worldCurrentLights, worldPlayerLights, worldDesiredLights, worldDesiredPlayerLights, worldDesiredCarry, smoothing, smoothingAllEntities, decayRate, fadeInRate);
+        // (small ships take turns when too many of them would change at once: small_ship_updates_per_tick)
+        Set<BlockPos> immediate = useVs
+                ? budgetSmallShips(level, config, gameState, worldCurrentLights, worldPlayerLights, worldDesiredLights, worldDesiredPlayerLights)
+                : Set.of();
+        LightPropagator.applyChanges(level, worldCurrentLights, worldPlayerLights, worldDesiredLights, worldDesiredPlayerLights, worldDesiredCarry, smoothing, smoothingAllEntities, decayRate, fadeInRate, immediate);
     }
 
     private static boolean processEntity(Entity entity, ServerLevel level, Map<BlockPos, LightCluster> worldClusters, Map<BlockPos, LightCluster> worldUltraClusters, Set<Integer> processedIds, LivelyConfig config, boolean useVs, LightGameState gameState) {
@@ -928,14 +1077,24 @@ public class LightLogic {
                 (int) Math.floor(Math.max(blocks.minY(), Math.min(blocks.maxY() + 1, shipSource[1]))),
                 (int) Math.floor(Math.max(blocks.minZ(), Math.min(blocks.maxZ() + 1, shipSource[2]))));
 
+        // Only cells that can touch the ship: an anchor is face-adjacent to one of its blocks, and those all lie
+        // in its block bounds, so nothing more than one cell outside them can qualify. For a one-block ship that
+        // is 27 cells read instead of 343 (the same cells found, in the same order).
+        boolean everyCell = Boolean.getBoolean("livelylighting.fullAnchorSearch");
         List<BlockPos> candidates = new ArrayList<>();
         for (int dx = -3; dx <= 3; dx++) {
+            int x = searchCenter.getX() + dx;
+            if (!everyCell && (x < blocks.minX() - 1 || x > blocks.maxX() + 1)) continue;
             for (int dy = -3; dy <= 3; dy++) {
+                int y = searchCenter.getY() + dy;
+                if (!everyCell && (y < blocks.minY() - 1 || y > blocks.maxY() + 1)) continue;
                 for (int dz = -3; dz <= 3; dz++) {
-                    BlockPos pos = searchCenter.offset(dx, dy, dz);
+                    int z = searchCenter.getZ() + dz;
+                    if (!everyCell && (z < blocks.minZ() - 1 || z > blocks.maxZ() + 1)) continue;
+                    BlockPos pos = new BlockPos(x, y, z);
                     if (!LightPropagator.isValidLightSpot(level, pos)) continue;
                     if (!isAttachedToShipStructure(level, pos)) continue;
-                    candidates.add(pos.immutable());
+                    candidates.add(pos);
                 }
             }
         }
@@ -954,6 +1113,99 @@ public class LightLogic {
             break;
         }
         anchors.put(key, new CachedAnchor(found, now));
+    }
+
+    /** Light sources a burning ship gives at most. */
+    private static final int SHIP_FIRE_LIGHTS = 4;
+    /** A burning ship whose blocks span more than this along a horizontal shipyard axis gets two lights along it. */
+    private static final int SHIP_FIRE_SPREAD_SPAN = 8;
+    /**
+     * Ticks a ship burns before its lights come on. Camafy tells clients which ships burn every 5 ticks, and Colorful
+     * Lighting gives a light block its colour when the block arrives (fire's, from Lively Lighting's client half, only
+     * once that client knows the ship burns); a light that came first stayed white.
+     */
+    private static final int SHIP_FIRE_LIGHT_DELAY = 15;
+    /** Per dimension: burning ships and the game time Lively Lighting first saw each one burning. */
+    private static final Map<ResourceKey<Level>, Map<Long, Long>> FIRE_SEEN = new HashMap<>();
+
+    /**
+     * A Valkyrien Skies ship on fire (Camafy's {@code ShipFire}) is a light source like a burning entity: a light of
+     * a burning entity's level at each burning part (its block, nudged toward the ship's up so the cell above a deck is
+     * the nearest anchor; the largest parts first, at most {@value #SHIP_FIRE_LIGHTS}), or, when the whole ship burns,
+     * on its top blocks spread over its box. Each one goes the ways a ship's own lamp and a held torch over a ship go:
+     * into the world at its world position (lighting the terrain round the ship, and other ships, following the ship as
+     * it moves and turns) and anchored in the ship's own shipyard (lighting its blocks). Every light block comes from
+     * the ordinary plan, so it is recorded, fades out within a few ticks once the fire is out or the ship is gone, and is
+     * swept when its chunk next loads and purged when the server stops. Returns the light sources added.
+     */
+    private static int addShipFireLights(ServerLevel level, ShipRef ship, long shipId, double mergeDistance, int room,
+                                         Map<BlockPos, LightCluster> worldClusters, Map<BlockPos, LightCluster> exactClusters,
+                                         List<ShipWorldEmitter> shipWorldEmitters) {
+        Map<Long, Long> seen = FIRE_SEEN.computeIfAbsent(level.dimension(), k -> new HashMap<>());
+        if (!net.camacraft.camafy.compat.vs.ShipFire.burning(level, shipId)) {
+            seen.remove(shipId);
+            return 0;
+        }
+        if (level.getGameTime() - seen.computeIfAbsent(shipId, k -> level.getGameTime()) < SHIP_FIRE_LIGHT_DELAY) return 0;
+        int lightLevel = LightCalculator.BURNING_LIGHT_LEVEL;
+        int added = 0;
+        for (Vec3 shipyardPoint : shipFirePoints(level, ship, shipId)) {
+            if (added >= room) break;
+            Vec3 worldPos = ship.toWorld(shipyardPoint);
+            if (worldPos == null) break; // ship gone
+            BlockPos gridPos = new BlockPos((int) Math.floor(worldPos.x / mergeDistance),
+                    (int) Math.floor(worldPos.y / mergeDistance), (int) Math.floor(worldPos.z / mergeDistance));
+            // carry equals the level, as for a ship's lamp: a fire moving with its ship never re-runs the ignition fade
+            worldClusters.computeIfAbsent(gridPos, k -> new LightCluster())
+                         .add(worldPos.x, worldPos.y, worldPos.z, lightLevel, false, lightLevel);
+            shipWorldEmitters.add(new ShipWorldEmitter(shipId, worldPos.x, worldPos.y, worldPos.z, lightLevel));
+            projectIntoShipyard(level, ship, worldPos, lightLevel, false, exactClusters);
+            added++;
+        }
+        return added;
+    }
+
+    /** Shipyard points a burning ship's lights come from (see {@link #addShipFireLights}). */
+    private static List<Vec3> shipFirePoints(ServerLevel level, ShipRef ship, long shipId) {
+        List<Vec3> points = new ArrayList<>();
+        double[] parts = net.camacraft.camafy.compat.vs.ShipFire.burningParts(level, shipId);
+        int count = parts.length / 5;
+        // a ship set alight all at once, or whose parts have spread all over it, keeps its parts: it burns all over
+        if (count > 0 && net.camacraft.camafy.compat.vs.ShipFire.burningShare(level, shipId) < 0.999F) {
+            Integer[] order = new Integer[count];
+            for (int i = 0; i < count; i++) order[i] = i;
+            // the largest parts first; the part's block settles ties, so the choice never flickers between equals
+            Arrays.sort(order, Comparator.<Integer>comparingDouble(i -> -parts[5 * i + 3])
+                    .thenComparingDouble(i -> parts[5 * i]).thenComparingDouble(i -> parts[5 * i + 1])
+                    .thenComparingDouble(i -> parts[5 * i + 2]));
+            for (int k = 0; k < Math.min(SHIP_FIRE_LIGHTS, count); k++) {
+                int i = order[k];
+                points.add(new Vec3(parts[5 * i] + 0.5, parts[5 * i + 1] + 0.8, parts[5 * i + 2] + 0.5));
+            }
+            return points;
+        }
+        // burns all over: its top blocks at one or two places along each horizontal axis of its box
+        BoundingBox box = ship.shipyardBlocks();
+        if (box == null) return points;
+        int nx = box.getXSpan() > SHIP_FIRE_SPREAD_SPAN ? 2 : 1;
+        int nz = box.getZSpan() > SHIP_FIRE_SPREAD_SPAN ? 2 : 1;
+        for (int i = 0; i < nx; i++) {
+            for (int j = 0; j < nz; j++) {
+                int x = box.minX() + (int) ((i + 0.5) * box.getXSpan() / nx);
+                int z = box.minZ() + (int) ((j + 0.5) * box.getZSpan() / nz);
+                for (int y = box.maxY(); y >= box.minY(); y--) {
+                    net.minecraft.world.level.block.state.BlockState state = LightPropagator.loadedState(level, new BlockPos(x, y, z));
+                    if (state == null) break; // not loaded: nothing waits for a chunk
+                    if (state.isAir() || state.is(net.minecraft.world.level.block.Blocks.LIGHT)) continue;
+                    points.add(new Vec3(x + 0.5, y + 0.8, z + 0.5));
+                    break;
+                }
+            }
+        }
+        if (points.isEmpty()) {
+            points.add(new Vec3(box.minX() + box.getXSpan() / 2.0, box.maxY() + 0.8, box.minZ() + box.getZSpan() / 2.0));
+        }
+        return points;
     }
 
     /** The light at its anchor, dimmed by the anchor's distance to the light's exact shipyard position. */
