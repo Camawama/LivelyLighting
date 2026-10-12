@@ -76,8 +76,12 @@ public class LightGameState {
     // Maps Dimension -> (ShipID -> engine runs a small ship has waited for its turn; see small_ship_updates_per_tick).
     public final Map<ResourceKey<Level>, Map<Long, Integer>> shipLightWait = new HashMap<>();
 
+    // Maps Dimension -> ids of the ships checked this session for light blocks copied into them (clean_copied_ship_lights).
+    public final Map<ResourceKey<Level>, Set<Long>> shipLightsChecked = new HashMap<>();
+
     public void clear() {
         shipLightWait.clear();
+        shipLightsChecked.clear();
         levelLights.clear();
         playerLights.clear();
         shipEmitterCache.clear();

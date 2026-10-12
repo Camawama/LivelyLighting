@@ -282,10 +282,19 @@ public class LightPropagator {
                         if (trackAsPlayerLight) {
                             nextCurrentPlayerLights.add(pos);
                         }
+                    } else if (stillPlaced(level, pos)) {
+                        // couldn't be dimmed (its chunk is going or gone): the block keeps its level, so keep
+                        // tracking it there and try again next run
+                        keepFailed(pos, currentLevel, trackAsPlayerLight, nextCurrentLights, nextCurrentPlayerLights);
                     }
                 } else { // newLevel <= 0
-                    if (currentLevel > 0) {
-                        removeLight(level, pos);
+                    if (currentLevel > 0 && !removeLight(level, pos) && stillPlaced(level, pos)) {
+                        // couldn't be taken out (its chunk is going or gone): the block is still there with its
+                        // record, so keep tracking it and try again next run (2026-10-10). Dropped here, it was
+                        // tracked by nothing: a light blocks Valkyrien Skies unloaded with a ship's chunks before
+                        // it faded kept shining in that ship whenever it came back, until a chunk-load sweep that
+                        // could miss it (the owner's one-block ships "lit up and tinted" in the dark).
+                        keepFailed(pos, currentLevel, trackAsPlayerLight, nextCurrentLights, nextCurrentPlayerLights);
                     }
                 }
             }
@@ -296,6 +305,26 @@ public class LightPropagator {
         currentLights.putAll(nextCurrentLights);
         currentPlayerLights.clear();
         currentPlayerLights.addAll(nextCurrentPlayerLights);
+    }
+
+    /**
+     * Whether the mod's light block at {@code pos} is still recorded (a failed change left it in place). In the
+     * shipyard of a ship that is gone (deleted: its claim with it) there is nothing left to take out, and its record goes.
+     */
+    private static boolean stillPlaced(ServerLevel level, BlockPos pos) {
+        LivelyLightingData data = LivelyLightingData.get(level);
+        if (!data.getPlacedLights(level.dimension()).contains(pos)) return false;
+        if (net.camacraft.camafy.compat.vs.Ships.available() && net.camacraft.camafy.compat.vs.Ships.inShipyard(level, pos)
+                && net.camacraft.camafy.compat.vs.Ships.managingAny(level, pos) == null) {
+            data.removePlacedLight(level.dimension(), pos);
+            return false;
+        }
+        return true;
+    }
+
+    private static void keepFailed(BlockPos pos, int level, boolean player, Map<BlockPos, Integer> nextCurrentLights, Set<BlockPos> nextCurrentPlayerLights) {
+        nextCurrentLights.merge(pos, level, Integer::max);
+        if (player) nextCurrentPlayerLights.add(pos);
     }
     
     // The block light level a position already receives from the desired light

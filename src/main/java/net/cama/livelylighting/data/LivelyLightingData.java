@@ -29,6 +29,10 @@ public class LivelyLightingData extends SavedData {
     // server killed, etc.) can be swept when their chunk next loads.
     private final Map<String, Set<BlockPos>> placedLights = new HashMap<>();
 
+    // Light blocks a player placed by hand, per dimension id: never taken for copies of the mod's own lights when a
+    // ship is checked for them (see LightManager's ship light check).
+    private final Map<String, Set<BlockPos>> handPlacedLights = new HashMap<>();
+
     public static LivelyLightingData get(ServerLevel level) {
         return level.getServer().overworld().getDataStorage().computeIfAbsent(LivelyLightingData::load, LivelyLightingData::new, DATA_NAME);
     }
@@ -88,6 +92,24 @@ public class LivelyLightingData extends SavedData {
         return placedLights.getOrDefault(dimension.location().toString(), Collections.emptySet());
     }
 
+    public void addHandPlacedLight(ResourceKey<Level> dimension, BlockPos pos) {
+        if (handPlacedLights.computeIfAbsent(dimension.location().toString(), k -> new HashSet<>()).add(pos.immutable())) {
+            setDirty();
+        }
+    }
+
+    public void removeHandPlacedLight(ResourceKey<Level> dimension, BlockPos pos) {
+        Set<BlockPos> positions = handPlacedLights.get(dimension.location().toString());
+        if (positions != null && positions.remove(pos)) {
+            setDirty();
+        }
+    }
+
+    public boolean isHandPlacedLight(ResourceKey<Level> dimension, BlockPos pos) {
+        Set<BlockPos> positions = handPlacedLights.get(dimension.location().toString());
+        return positions != null && positions.contains(pos);
+    }
+
     public static LivelyLightingData load(CompoundTag tag) {
         LivelyLightingData data = new LivelyLightingData();
         
@@ -116,6 +138,15 @@ public class LivelyLightingData extends SavedData {
                 positions.add(BlockPos.of(packed));
             }
             data.placedLights.put(dimensionId, positions);
+        }
+
+        CompoundTag handTag = tag.getCompound("HandPlacedLights");
+        for (String dimensionId : handTag.getAllKeys()) {
+            Set<BlockPos> positions = new HashSet<>();
+            for (long packed : handTag.getLongArray(dimensionId)) {
+                positions.add(BlockPos.of(packed));
+            }
+            data.handPlacedLights.put(dimensionId, positions);
         }
 
         return data;
@@ -159,6 +190,13 @@ public class LivelyLightingData extends SavedData {
             placedTag.put(entry.getKey(), new LongArrayTag(packed));
         }
         tag.put("PlacedLights", placedTag);
+
+        CompoundTag handTag = new CompoundTag();
+        for (Map.Entry<String, Set<BlockPos>> entry : handPlacedLights.entrySet()) {
+            if (entry.getValue().isEmpty()) continue;
+            handTag.put(entry.getKey(), new LongArrayTag(entry.getValue().stream().mapToLong(BlockPos::asLong).toArray()));
+        }
+        tag.put("HandPlacedLights", handTag);
 
         return tag;
     }

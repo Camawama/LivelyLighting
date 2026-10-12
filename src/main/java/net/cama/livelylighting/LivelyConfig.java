@@ -114,6 +114,13 @@ public class LivelyConfig {
     // four lights at its burning parts (spread over it when it all burns), lighting the world round
     // it and its own blocks as it moves, gone within a second of the fire going out. Needs vs_support.
     public boolean ship_fire_lights = true;
+    // The mod's lights inside a ship go with whatever copies the ship: a VMod schematic pasted or a
+    // world area assembled into a ship takes them along, as light blocks the mod has no record of,
+    // which then shine in the copy for good (the owner's ships "stuck full bright" in an old world,
+    // 2026-10-05). On: the first time in a session a ship comes near a player, the light blocks in
+    // and round it that the mod has no record of and no player placed by hand are taken out (the
+    // mod puts back at once whatever light it wants there). Needs vs_support.
+    public boolean clean_copied_ship_lights = true;
 
     public Experimental experimental = new Experimental();
 

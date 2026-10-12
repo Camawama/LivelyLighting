@@ -84,6 +84,47 @@ public class ChunkGuardTests {
         helper.succeed();
     }
 
+    /**
+     * A light the plan wants gone but that can't be taken out right now stays tracked at its level, so the next run
+     * takes it out (2026-10-10: dropped from tracking, it was an orphan that shone on in the owner's one-block ships).
+     */
+    @GameTest(template = PLATFORM, timeoutTicks = 40)
+    public static void aLightWhoseRemovalFailedStaysTracked(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        BlockPos pos = helper.absolutePos(new BlockPos(11, AIR, 5));
+        if (!LightPropagator.placeLight(level, pos, 10)) helper.fail("couldn't place the light");
+        java.util.Map<BlockPos, Integer> current = new java.util.HashMap<>(java.util.Map.of(pos, 10));
+        java.util.Set<BlockPos> currentPlayer = new java.util.HashSet<>();
+        withoutHeightmaps(level.getChunkAt(pos), () -> {
+            LightPropagator.applyChanges(level, current, currentPlayer, new java.util.HashMap<>(), new java.util.HashSet<>(),
+                    new java.util.HashMap<>(), false, false, 15, 15);
+            return true;
+        });
+        if (!level.getBlockState(pos).is(Blocks.LIGHT)) helper.fail("the light went in a chunk without heightmaps");
+        if (current.getOrDefault(pos, 0) != 10) helper.fail("the light that couldn't go was dropped from tracking: " + current);
+
+        LightPropagator.applyChanges(level, current, currentPlayer, new java.util.HashMap<>(), new java.util.HashSet<>(),
+                new java.util.HashMap<>(), false, false, 15, 15);
+        if (!level.getBlockState(pos).isAir()) helper.fail("the light stayed on the next run: " + level.getBlockState(pos));
+        if (current.containsKey(pos)) helper.fail("still tracked once gone");
+        if (LivelyLightingData.get(level).getPlacedLights(level.dimension()).contains(pos)) helper.fail("the record stayed");
+        helper.succeed();
+    }
+
+    /** A recorded light the engine doesn't track (an orphan) goes at the next record audit (every five seconds). */
+    @GameTest(template = PLATFORM, timeoutTicks = 160)
+    public static void anOrphanedRecordedLightIsAudited(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        BlockPos pos = helper.absolutePos(new BlockPos(13, AIR, 7));
+        if (!LightPropagator.placeLight(level, pos, 9)) helper.fail("couldn't place the light");
+        long before = net.cama.livelylighting.dynamiclighting.engine.LightManager.orphansRemoved();
+        helper.succeedWhen(() -> {
+            if (!level.getBlockState(pos).isAir()) helper.fail("the orphan is still there");
+            if (LivelyLightingData.get(level).getPlacedLights(level.dimension()).contains(pos)) helper.fail("its record is still there");
+            if (net.cama.livelylighting.dynamiclighting.engine.LightManager.orphansRemoved() <= before) helper.fail("not counted");
+        });
+    }
+
     /** Runs {@code body} with the chunk's heightmaps emptied (as Valkyrien Skies leaves them), then puts them back. */
     private static boolean withoutHeightmaps(LevelChunk chunk, java.util.function.BooleanSupplier body) {
         Map<Heightmap.Types, Heightmap> maps = heightmaps(chunk);

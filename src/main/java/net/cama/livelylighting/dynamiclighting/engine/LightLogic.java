@@ -453,6 +453,7 @@ public class LightLogic {
             for (Map.Entry<Long, ShipRef> shipEntry : nearbyShips.entrySet()) {
                 long shipId = shipEntry.getKey();
                 ShipRef ship = shipEntry.getValue();
+                if (config.clean_copied_ship_lights && !Boolean.getBoolean("livelylighting.keepShipLights")) LightManager.checkShipLights(level, ship, gameState);
 
                 Map<BlockPos, Integer> emitters = shipEmitterCache.get(shipId);
                 long lastScan = shipEmitterScanTime.getOrDefault(shipId, Long.MIN_VALUE);
