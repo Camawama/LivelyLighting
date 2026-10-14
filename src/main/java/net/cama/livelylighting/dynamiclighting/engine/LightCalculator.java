@@ -53,7 +53,8 @@ public class LightCalculator {
 
     // Constants to ensure object equality and reduce garbage
     private static final List<net.minecraft.core.particles.ParticleType<?>> FLAME_PARTICLES = Collections.singletonList(ParticleTypes.FLAME);
-    private static final List<SoundData> FLAME_SOUNDS = Arrays.asList(new SoundData(SoundEvents.FIRECHARGE_USE, 0.2f, 1.0f), new SoundData(SoundEvents.FLINTANDSTEEL_USE, 0.5f, 1.2f));
+    // A body catching fire whooshes (the fire charge's flame) without a flint-and-steel click: nothing struck it.
+    private static final List<SoundData> FLAME_SOUNDS = Collections.singletonList(new SoundData(SoundEvents.FIRECHARGE_USE, 0.2f, 1.0f));
     private static final List<SoundData> FLAME_EXTINGUISH_SOUNDS = Collections.singletonList(new SoundData(SoundEvents.GENERIC_EXTINGUISH_FIRE, 0.5f, 1.0f));
     
     private static final List<net.minecraft.core.particles.ParticleType<?>> SPARK_PARTICLES = Collections.singletonList(ParticleTypes.ELECTRIC_SPARK);

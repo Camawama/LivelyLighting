@@ -18,6 +18,14 @@ import java.util.*;
 public class LightPropagator {
 
     public static void calculateLightField(ServerLevel level, Map<BlockPos, LightCluster> clusters, Map<BlockPos, Integer> desiredLights, Set<BlockPos> desiredPlayerLights, Map<BlockPos, Integer> desiredCarry, boolean smoothing, boolean clusterGrowing, int maxRadius) {
+        calculateLightField(level, clusters, desiredLights, desiredPlayerLights, desiredCarry, null, smoothing, clusterGrowing, maxRadius);
+    }
+
+    /**
+     * As above; {@code desiredSources} (may be null) gets what each planned light stands for: the sources of the
+     * cluster that gives the position its level, both clusters' when two give it the same (LightSources).
+     */
+    public static void calculateLightField(ServerLevel level, Map<BlockPos, LightCluster> clusters, Map<BlockPos, Integer> desiredLights, Set<BlockPos> desiredPlayerLights, Map<BlockPos, Integer> desiredCarry, Map<BlockPos, long[]> desiredSources, boolean smoothing, boolean clusterGrowing, int maxRadius) {
         for (LightCluster cluster : clusters.values()) {
             cluster.normalize();
 
@@ -56,6 +64,7 @@ public class LightPropagator {
                             desiredPlayerLights.add(centerPos);
                         }
                     }
+                    noteSources(desiredSources, centerPos, cluster, levelAtTarget, existing);
                     if (cluster.carryLevel > 0) {
                         desiredCarry.merge(centerPos, cluster.carryLevel, Integer::max);
                     }
@@ -104,6 +113,7 @@ public class LightPropagator {
                                     desiredPlayerLights.add(currentPos);
                                 }
                             }
+                            noteSources(desiredSources, currentPos, cluster, levelAtTarget, existing);
                             if (cluster.carryLevel > 0) {
                                 desiredCarry.merge(currentPos, cluster.carryLevel, Integer::max);
                             }
@@ -116,6 +126,7 @@ public class LightPropagator {
                                 desiredPlayerLights.add(currentPos);
                             }
                         }
+                        noteSources(desiredSources, currentPos, cluster, levelAtTarget, existing);
                         if (cluster.carryLevel > 0) {
                             desiredCarry.merge(currentPos, cluster.carryLevel, Integer::max);
                         }
@@ -138,6 +149,16 @@ public class LightPropagator {
         }
     }
     
+    /** The sources of the cluster that sets a position's level, joined with the other's on a tie (see LightSources). */
+    private static void noteSources(Map<BlockPos, long[]> desiredSources, BlockPos pos, LightCluster cluster, int level, int existing) {
+        if (desiredSources == null || cluster.sources().length == 0) return;
+        if (level > existing) {
+            desiredSources.put(pos, cluster.sources());
+        } else if (level == existing) {
+            desiredSources.merge(pos, cluster.sources(), LightSources::union);
+        }
+    }
+
     public static void applyChanges(ServerLevel level, Map<BlockPos, Integer> currentLights, Set<BlockPos> currentPlayerLights, Map<BlockPos, Integer> desiredLights, Set<BlockPos> desiredPlayerLights, Map<BlockPos, Integer> desiredCarry, boolean smoothing, boolean smoothingAllEntities, int decayRate, int fadeInRate) {
         applyChanges(level, currentLights, currentPlayerLights, desiredLights, desiredPlayerLights, desiredCarry, smoothing, smoothingAllEntities, decayRate, fadeInRate, Set.of());
     }

@@ -15,6 +15,20 @@ public class LightCluster {
     public double maxX, maxY, maxZ;
     public boolean first = true;
 
+    // What the cluster's light stands for (see LightSources): every member's source, so a
+    // merged light keeps the colour of each lamp or holder in it on clients.
+    private long[] sources = LightSources.NONE;
+
+    /** Adds a member's source (LightSources.ENTITY, WORLD_LAMP, SHIP_LAMP or FIRE with its value). */
+    public LightCluster source(int kind, long value) {
+        sources = LightSources.with(sources, kind, value);
+        return this;
+    }
+
+    public long[] sources() {
+        return sources;
+    }
+
     public void add(double ex, double ey, double ez, int light, boolean player, int carry) {
         x += ex;
         y += ey;

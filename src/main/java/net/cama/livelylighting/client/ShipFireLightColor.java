@@ -71,7 +71,7 @@ public final class ShipFireLightColor {
             try {
                 Class<?> provider = Class.forName("net.camacraft.colorfullighting.api.CLBlockLightColorProvider");
                 Object instance = Proxy.newProxyInstance(provider.getClassLoader(), new Class<?>[]{provider}, (proxy, method, args) -> switch (method.getName()) {
-                    case "getLightColor" -> colorAt((BlockPos) args[1], (BlockState) args[2]);
+                    case "getLightColor" -> colorAt((net.minecraft.world.level.Level) args[0], (BlockPos) args[1], (BlockState) args[2]);
                     case "hashCode" -> System.identityHashCode(proxy);
                     case "equals" -> proxy == args[0];
                     case "toString" -> "Lively Lighting: burning ship lights";
@@ -88,9 +88,12 @@ public final class ShipFireLightColor {
     }
 
     /** Colorful Lighting's question (its light worker and meshing threads): fire's colour, or -1 to pass. */
-    private static int colorAt(BlockPos pos, BlockState state) {
+    private static int colorAt(net.minecraft.world.level.Level level, BlockPos pos, BlockState state) {
         double[] b = boxes;
         if (!state.is(Blocks.LIGHT)) return -1;
+        // a light the server described (light_source_colors) takes its own sources' colour: a torch held over a burning
+        // ship stays a torch's light
+        if (LightSourceColors.knows(level, pos)) return -1;
         ASKED.increment();
         if (b.length == 0) return -1;
         double x = pos.getX() + 0.5, y = pos.getY() + 0.5, z = pos.getZ() + 0.5;

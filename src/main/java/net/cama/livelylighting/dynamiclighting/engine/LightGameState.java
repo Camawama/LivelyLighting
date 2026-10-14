@@ -79,7 +79,20 @@ public class LightGameState {
     // Maps Dimension -> ids of the ships checked this session for light blocks copied into them (clean_copied_ship_lights).
     public final Map<ResourceKey<Level>, Set<Long>> shipLightsChecked = new HashMap<>();
 
+    // Maps Dimension -> (light BlockPos -> what that placed light stands for, LightSources pairs; light_source_colors).
+    public final Map<ResourceKey<Level>, Map<BlockPos, long[]>> lightSources = new HashMap<>();
+
+    // Maps Dimension -> (player UUID -> (light BlockPos -> the sources that player's client was told)).
+    public final Map<ResourceKey<Level>, Map<java.util.UUID, Map<BlockPos, long[]>>> lightSourcesSent = new HashMap<>();
+
+    // Maps Dimension -> (EntityID -> (SourceID -> game time it was last lit)): ignition sounds and particles only play
+    // for a source that was out a while, not for one flickering on and off.
+    public final Map<ResourceKey<Level>, Map<Integer, Map<String, Long>>> lastLitTime = new HashMap<>();
+
     public void clear() {
+        lightSources.clear();
+        lightSourcesSent.clear();
+        lastLitTime.clear();
         shipLightWait.clear();
         shipLightsChecked.clear();
         levelLights.clear();

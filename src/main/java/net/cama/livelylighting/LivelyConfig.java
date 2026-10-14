@@ -121,6 +121,12 @@ public class LivelyConfig {
     // and round it that the mod has no record of and no player placed by hand are taken out (the
     // mod puts back at once whatever light it wants there). Needs vs_support.
     public boolean clean_copied_ship_lights = true;
+    // Clients are told what each of the mod's lights stands for (the holder and what it holds, a
+    // lamp, a burning ship), so Colorful Lighting gives the light its source's colour wherever it is:
+    // a fast holder's trail, a light fading out after it was put away, several lamps merged into one
+    // light, the dim edge of a lamp's light on a ship (all white before, 2026-10-12). Needs the mod
+    // on the client too; clients without it keep Colorful Lighting's own guess.
+    public boolean light_source_colors = true;
 
     public Experimental experimental = new Experimental();
 

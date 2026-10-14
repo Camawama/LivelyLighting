@@ -63,6 +63,14 @@ public class LightLogic {
 
     private static final Map<ResourceKey<Level>, Map<AnchorKey, CachedAnchor>> ANCHORS = new HashMap<>();
 
+    /**
+     * A source lit again within this many ticks of going out is the same light flickering, not a new ignition: no
+     * ignition sound or particles again. A creative player on a burning ship was set alight every few ticks by the
+     * ship's fire and put out by vanilla between (an invulnerable player's fire lasts one tick), and the mod's flame
+     * sound and particles played every half second (the owner, 2026-10-12).
+     */
+    private static final int IGNITION_REARM_TICKS = 20;
+
     /** Forgets every cached shipyard anchor (a purge). */
     public static void clearCaches() {
         ANCHORS.clear();
@@ -231,7 +239,8 @@ public class LightLogic {
 
     // A ship lamp's world-space position this tick, collected in pass 1 of the VS
     // section and fed to every OTHER ship's projection for ship-to-ship lighting.
-    private record ShipWorldEmitter(long shipId, double x, double y, double z, int emission) {}
+    // sourceKind/sourceValue: what its light stands for (LightSources), for its colour.
+    private record ShipWorldEmitter(long shipId, double x, double y, double z, int emission, int sourceKind, long sourceValue) {}
 
     /**
      * @param vsAvailable Valkyrien Skies is installed and reachable through Camafy
@@ -244,6 +253,8 @@ public class LightLogic {
         Map<BlockPos, Integer> worldDesiredLights = new HashMap<>();
         Set<BlockPos> worldDesiredPlayerLights = new HashSet<>();
         Map<BlockPos, Integer> worldDesiredCarry = new HashMap<>();
+        // what each planned light stands for (LightSources), told to clients for its colour
+        Map<BlockPos, long[]> worldDesiredSources = new HashMap<>();
 
         boolean smoothing = config.smoothing;
         boolean smoothingAllEntities = config.smoothing_all_entities;
@@ -480,10 +491,12 @@ public class LightLogic {
 
                     // Carry equals the emission so an already-lit lamp never
                     // re-runs the ignition fade as the ship moves.
-                    worldClusters.computeIfAbsent(gridPos, k -> new LightCluster())
-                                 .add(worldPos.x, worldPos.y, worldPos.z, emission, false, emission);
+                    LightCluster lampCluster = worldClusters.computeIfAbsent(gridPos, k -> new LightCluster());
+                    lampCluster.add(worldPos.x, worldPos.y, worldPos.z, emission, false, emission);
+                    lampCluster.source(LightSources.SHIP_LAMP, shipPos.asLong());
 
-                    shipWorldEmitters.add(new ShipWorldEmitter(shipId, worldPos.x, worldPos.y, worldPos.z, emission));
+                    shipWorldEmitters.add(new ShipWorldEmitter(shipId, worldPos.x, worldPos.y, worldPos.z, emission,
+                            LightSources.SHIP_LAMP, shipPos.asLong()));
                 }
 
                 // a ship on fire (Camafy's ship fire) is a light like a burning entity (ship_fire_lights)
@@ -551,6 +564,12 @@ public class LightLogic {
             }
             
             // Cleanup per-entity caches, scoped to this dimension only
+            Map<Integer, Map<String, Long>> dimLitTimes = gameState.lastLitTime.get(dimension);
+            if (dimLitTimes != null) {
+                long now = level.getGameTime();
+                for (Map<String, Long> times : dimLitTimes.values()) times.values().removeIf(t -> now - t > IGNITION_REARM_TICKS);
+                dimLitTimes.entrySet().removeIf(e -> e.getValue().isEmpty() || sourceGone(level, sweepData, e.getKey()));
+            }
             Map<Integer, Long> dimSoundTimes = gameState.lastSoundTime.get(dimension);
             if (dimSoundTimes != null) {
                 dimSoundTimes.keySet().removeIf(id -> sourceGone(level, sweepData, id));
@@ -570,8 +589,8 @@ public class LightLogic {
         }
 
         // 2. Calculate Desired Light Field
-        LightPropagator.calculateLightField(level, worldClusters, worldDesiredLights, worldDesiredPlayerLights, worldDesiredCarry, smoothing, clusterGrowing, maxRadius);
-        LightPropagator.calculateLightField(level, worldUltraClusters, worldDesiredLights, worldDesiredPlayerLights, worldDesiredCarry, smoothing, clusterGrowing, maxRadius);
+        LightPropagator.calculateLightField(level, worldClusters, worldDesiredLights, worldDesiredPlayerLights, worldDesiredCarry, worldDesiredSources, smoothing, clusterGrowing, maxRadius);
+        LightPropagator.calculateLightField(level, worldUltraClusters, worldDesiredLights, worldDesiredPlayerLights, worldDesiredCarry, worldDesiredSources, smoothing, clusterGrowing, maxRadius);
 
         // 3. Apply Changes. Ship-projected lights live in the world like any other
         // source, so the normal fade/removal path cleans them up when the ship
@@ -581,6 +600,10 @@ public class LightLogic {
                 ? budgetSmallShips(level, config, gameState, worldCurrentLights, worldPlayerLights, worldDesiredLights, worldDesiredPlayerLights)
                 : Set.of();
         LightPropagator.applyChanges(level, worldCurrentLights, worldPlayerLights, worldDesiredLights, worldDesiredPlayerLights, worldDesiredCarry, smoothing, smoothingAllEntities, decayRate, fadeInRate, immediate);
+
+        // 4. Tell clients what each placed light stands for, so Colorful Lighting gives it its source's colour
+        // (light_source_colors). A fading light keeps what they were told while it was lit.
+        LightSourceSync.afterRun(level, config, gameState, worldCurrentLights, worldDesiredSources);
     }
 
     private static boolean processEntity(Entity entity, ServerLevel level, Map<BlockPos, LightCluster> worldClusters, Map<BlockPos, LightCluster> worldUltraClusters, Set<Integer> processedIds, LivelyConfig config, boolean useVs, LightGameState gameState) {
@@ -711,11 +734,14 @@ public class LightLogic {
 
         boolean frozen = false;
         boolean isPlayer = entity instanceof Player;
-        for (BlockPos pos : anchors.values()) {
+        for (Map.Entry<String, BlockPos> anchor : anchors.entrySet()) {
+            BlockPos pos = anchor.getValue();
             Integer current = dimLights.get(pos);
             if (current == null || current <= 0) continue;
-            exactClusters.computeIfAbsent(pos, k -> new LightCluster())
-                         .add(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, current, isPlayer, current);
+            LightCluster cluster = exactClusters.computeIfAbsent(pos, k -> new LightCluster());
+            cluster.add(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, current, isPlayer, current);
+            int slot = LightSources.slotOf(anchor.getKey());
+            cluster.source(LightSources.ENTITY, LightSources.entity(entity.getId(), slot, LightSources.token(entity, slot)));
             frozen = true;
         }
         return frozen;
@@ -778,6 +804,13 @@ public class LightLogic {
         
         boolean isNew = isLit && !wasLit;
 
+        // lit again soon after going out: the same light flickering, no ignition effects (IGNITION_REARM_TICKS)
+        Map<Integer, Map<String, Long>> dimLitTimes = gameState.lastLitTime.computeIfAbsent(level.dimension(), k -> new HashMap<>());
+        Map<String, Long> litTimes = dimLitTimes.get(entity.getId());
+        Long lastLit = litTimes == null ? null : litTimes.get(sourceId);
+        boolean flickering = lastLit != null && level.getGameTime() - lastLit <= IGNITION_REARM_TICKS;
+        if (isLit) dimLitTimes.computeIfAbsent(entity.getId(), k -> new HashMap<>()).put(sourceId, level.getGameTime());
+
         if (wasLit && !isLit) {
             if (config.enable_sounds && !worldData.arePlayerSoundsDisabled(entity.getUUID())) {
                 boolean playExtinguish = false;
@@ -806,7 +839,7 @@ public class LightLogic {
                     }
                 }
             }
-        } else if (isNew) {
+        } else if (isNew && !flickering) {
             if (!wasLit) { // Only play sounds/particles if we weren't lit before
                 if (!(entity instanceof Creeper) && !(entity instanceof PrimedTnt)) {
                      Map<Integer, Long> soundTimes = gameState.lastSoundTime.computeIfAbsent(level.dimension(), k -> new HashMap<>());
@@ -873,6 +906,10 @@ public class LightLogic {
         }
 
         if (lightLevel > 0) {
+            // what this light stands for (LightSources): the entity, the slot it comes from and what is in it
+            int slot = LightSources.slotOf(sourceId);
+            long source = LightSources.entity(entity.getId(), slot, LightSources.token(entity, slot));
+
             // Valkyrien Skies. Two mirrored cases:
             // - An entity that lives at shipyard coordinates (item frames and other
             //   hanging entities mounted on ship blocks): the normal world path
@@ -886,10 +923,10 @@ public class LightLogic {
                 if (managingShip != null) {
                     Vec3 worldEye = managingShip.toWorld(new Vec3(entity.getX(), entity.getEyeY(), entity.getZ()));
                     if (worldEye != null) {
-                        addWorldProjection(level, worldEye, lightLevel, entity instanceof Player, worldUltraClusters);
+                        addWorldProjection(level, worldEye, lightLevel, entity instanceof Player, worldUltraClusters, source);
                     }
                 } else {
-                    addShipyardProjection(level, entity, lightLevel, worldUltraClusters);
+                    addShipyardProjection(level, entity, lightLevel, worldUltraClusters, source);
                 }
             }
 
@@ -898,7 +935,7 @@ public class LightLogic {
                 // a continuous point light and every nearby block gets its exact
                 // interpolated level. Predictive lead, anchor caching and the
                 // distance penalty are all bypassed; the interpolation IS the anchor.
-                addUltraSources(level, entity, lightLevel, worldUltraClusters);
+                addUltraSources(level, entity, lightLevel, worldUltraClusters, source);
                 Map<Integer, Map<String, BlockPos>> dimSourcePos = gameState.lastSourcePos.get(level.dimension());
                 if (dimSourcePos != null) {
                     Map<String, BlockPos> cache = dimSourcePos.get(entity.getId());
@@ -994,7 +1031,9 @@ public class LightLogic {
                     int gridZ = (int) Math.floor(lightZ / mergeDistance);
                     BlockPos gridPos = new BlockPos(gridX, gridY, gridZ);
 
-                    worldClusters.computeIfAbsent(gridPos, k -> new LightCluster()).add(lightX, lightY, lightZ, lightLevel, entity instanceof Player, carryLevel);
+                    LightCluster cluster = worldClusters.computeIfAbsent(gridPos, k -> new LightCluster());
+                    cluster.add(lightX, lightY, lightZ, lightLevel, entity instanceof Player, carryLevel);
+                    cluster.source(LightSources.ENTITY, source);
                 }
             }
         } else {
@@ -1027,7 +1066,7 @@ public class LightLogic {
      * the search on the hull surface nearest the holder — the air above a deck or
      * beside the hull sits at or just outside those bounds, never inside them.
      */
-    private static void addShipyardProjection(ServerLevel level, Entity entity, int lightLevel, Map<BlockPos, LightCluster> exactClusters) {
+    private static void addShipyardProjection(ServerLevel level, Entity entity, int lightLevel, Map<BlockPos, LightCluster> exactClusters, long source) {
         AABB reach = entity.getBoundingBox().inflate(lightLevel);
         List<ShipRef> ships = Ships.intersecting(level, reach);
         if (ships.isEmpty()) return;
@@ -1036,7 +1075,7 @@ public class LightLogic {
         boolean isPlayer = entity instanceof Player;
 
         for (ShipRef ship : ships) {
-            projectIntoShipyard(level, ship, eye, lightLevel, isPlayer, exactClusters);
+            projectIntoShipyard(level, ship, eye, lightLevel, isPlayer, exactClusters, LightSources.ENTITY, source);
         }
     }
 
@@ -1049,7 +1088,8 @@ public class LightLogic {
      * the source; the placed level is dimmed by the anchor's distance to the
      * transformed source.
      */
-    private static void projectIntoShipyard(ServerLevel level, ShipRef ship, Vec3 worldSource, int lightLevel, boolean isPlayer, Map<BlockPos, LightCluster> exactClusters) {
+    private static void projectIntoShipyard(ServerLevel level, ShipRef ship, Vec3 worldSource, int lightLevel, boolean isPlayer, Map<BlockPos, LightCluster> exactClusters,
+                                            int sourceKind, long sourceValue) {
         BoundingBox blocks = ship.shipyardBlocks();
         if (blocks == null) return;
 
@@ -1064,7 +1104,7 @@ public class LightLogic {
         CachedAnchor cached = anchors.get(key);
         if (cached != null && now - cached.time() < ANCHOR_REUSE_TICKS
                 && (cached.anchor() == null || LightPropagator.isValidLightSpot(level, cached.anchor()))) {
-            if (cached.anchor() != null) addAnchor(cached.anchor(), shipSource, lightLevel, isPlayer, exactClusters);
+            if (cached.anchor() != null) addAnchor(cached.anchor(), shipSource, lightLevel, isPlayer, exactClusters, sourceKind, sourceValue);
             return;
         }
 
@@ -1110,7 +1150,7 @@ public class LightLogic {
                 continue;
             }
             found = pos;
-            addAnchor(pos, shipSource, lightLevel, isPlayer, exactClusters);
+            addAnchor(pos, shipSource, lightLevel, isPlayer, exactClusters, sourceKind, sourceValue);
             break;
         }
         anchors.put(key, new CachedAnchor(found, now));
@@ -1157,10 +1197,11 @@ public class LightLogic {
             BlockPos gridPos = new BlockPos((int) Math.floor(worldPos.x / mergeDistance),
                     (int) Math.floor(worldPos.y / mergeDistance), (int) Math.floor(worldPos.z / mergeDistance));
             // carry equals the level, as for a ship's lamp: a fire moving with its ship never re-runs the ignition fade
-            worldClusters.computeIfAbsent(gridPos, k -> new LightCluster())
-                         .add(worldPos.x, worldPos.y, worldPos.z, lightLevel, false, lightLevel);
-            shipWorldEmitters.add(new ShipWorldEmitter(shipId, worldPos.x, worldPos.y, worldPos.z, lightLevel));
-            projectIntoShipyard(level, ship, worldPos, lightLevel, false, exactClusters);
+            LightCluster fireCluster = worldClusters.computeIfAbsent(gridPos, k -> new LightCluster());
+            fireCluster.add(worldPos.x, worldPos.y, worldPos.z, lightLevel, false, lightLevel);
+            fireCluster.source(LightSources.FIRE, 0L);
+            shipWorldEmitters.add(new ShipWorldEmitter(shipId, worldPos.x, worldPos.y, worldPos.z, lightLevel, LightSources.FIRE, 0L));
+            projectIntoShipyard(level, ship, worldPos, lightLevel, false, exactClusters, LightSources.FIRE, 0L);
             added++;
         }
         return added;
@@ -1210,12 +1251,14 @@ public class LightLogic {
     }
 
     /** The light at its anchor, dimmed by the anchor's distance to the light's exact shipyard position. */
-    private static void addAnchor(BlockPos pos, double[] shipSource, int lightLevel, boolean isPlayer, Map<BlockPos, LightCluster> exactClusters) {
+    private static void addAnchor(BlockPos pos, double[] shipSource, int lightLevel, boolean isPlayer, Map<BlockPos, LightCluster> exactClusters,
+                                  int sourceKind, long sourceValue) {
         double dist = Math.sqrt(pos.distToCenterSqr(shipSource[0], shipSource[1], shipSource[2]));
         int dimmed = lightLevel - (int) Math.floor(Math.max(0, dist - 1.0));
         if (dimmed > 0) {
-            exactClusters.computeIfAbsent(pos, k -> new LightCluster())
-                         .add(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, dimmed, isPlayer, dimmed);
+            LightCluster cluster = exactClusters.computeIfAbsent(pos, k -> new LightCluster());
+            cluster.add(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, dimmed, isPlayer, dimmed);
+            cluster.source(sourceKind, sourceValue);
         }
     }
 
@@ -1228,7 +1271,7 @@ public class LightLogic {
      * since world placement can't grow anything, but the light path check keeps
      * it from seeding light inside overlapping world terrain.
      */
-    private static void addWorldProjection(ServerLevel level, Vec3 worldEye, int lightLevel, boolean isPlayer, Map<BlockPos, LightCluster> exactClusters) {
+    private static void addWorldProjection(ServerLevel level, Vec3 worldEye, int lightLevel, boolean isPlayer, Map<BlockPos, LightCluster> exactClusters, long source) {
         BlockPos center = BlockPos.containing(worldEye);
 
         List<BlockPos> candidates = new ArrayList<>();
@@ -1254,8 +1297,9 @@ public class LightLogic {
             double dist = Math.sqrt(pos.distToCenterSqr(worldEye.x, worldEye.y, worldEye.z));
             int dimmed = lightLevel - (int) Math.floor(Math.max(0, dist - 1.0));
             if (dimmed > 0) {
-                exactClusters.computeIfAbsent(pos, k -> new LightCluster())
-                             .add(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, dimmed, isPlayer, dimmed);
+                LightCluster cluster = exactClusters.computeIfAbsent(pos, k -> new LightCluster());
+                cluster.add(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, dimmed, isPlayer, dimmed);
+                cluster.source(LightSources.ENTITY, source);
             }
             break;
         }
@@ -1286,7 +1330,7 @@ public class LightLogic {
                 .computeIfAbsent(level.dimension(), k -> new HashMap<>());
         long now = level.getGameTime();
 
-        record NearbyEmitter(double x, double y, double z, int emission, int effective) {}
+        record NearbyEmitter(double x, double y, double z, int emission, int effective, int sourceKind, long sourceValue) {}
         List<NearbyEmitter> nearby = new ArrayList<>();
 
         // Other ships' lamps at their current world positions. Distance to this
@@ -1300,7 +1344,8 @@ public class LightLogic {
             int shipEffective = shipEmitter.emission() - (int) Math.floor(Math.max(0, shipDist - 1.0));
             if (shipEffective <= 0) continue;
 
-            nearby.add(new NearbyEmitter(shipEmitter.x(), shipEmitter.y(), shipEmitter.z(), shipEmitter.emission(), shipEffective));
+            nearby.add(new NearbyEmitter(shipEmitter.x(), shipEmitter.y(), shipEmitter.z(), shipEmitter.emission(), shipEffective,
+                    shipEmitter.sourceKind(), shipEmitter.sourceValue()));
         }
 
         int minChunkX = ((int) Math.floor(minX)) >> 4;
@@ -1335,7 +1380,8 @@ public class LightLogic {
                     int effective = emission - (int) Math.floor(Math.max(0, dist - 1.0));
                     if (effective <= 0) continue;
 
-                    nearby.add(new NearbyEmitter(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, emission, effective));
+                    nearby.add(new NearbyEmitter(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, emission, effective,
+                            LightSources.WORLD_LAMP, pos.asLong()));
                 }
             }
         }
@@ -1346,7 +1392,8 @@ public class LightLogic {
         int count = Math.min(nearby.size(), MAX_WORLD_EMITTERS_PER_SHIP);
         for (int i = 0; i < count; i++) {
             NearbyEmitter emitter = nearby.get(i);
-            projectIntoShipyard(level, ship, new Vec3(emitter.x, emitter.y, emitter.z), emitter.emission, false, exactClusters);
+            projectIntoShipyard(level, ship, new Vec3(emitter.x, emitter.y, emitter.z), emitter.emission, false, exactClusters,
+                    emitter.sourceKind, emitter.sourceValue);
         }
     }
 
@@ -1454,7 +1501,7 @@ public class LightLogic {
      * via open-air propagation are trimmed — the vanilla engine produces the same
      * value there, so placing them would only add block-update churn.
      */
-    private static void addUltraSources(ServerLevel level, Entity entity, int lightLevel, Map<BlockPos, LightCluster> ultraClusters) {
+    private static void addUltraSources(ServerLevel level, Entity entity, int lightLevel, Map<BlockPos, LightCluster> ultraClusters, long source) {
         double eyeX = entity.getX();
         double eyeY = entity.getEyeY();
         double eyeZ = entity.getZ();
@@ -1503,9 +1550,10 @@ public class LightLogic {
 
             // Keyed by exact block position; carry equals the level so applyChanges
             // grants it immediately — the interpolation replaces fade-in/out here.
-            ultraClusters.computeIfAbsent(candidate.pos, k -> new LightCluster())
-                         .add(candidate.pos.getX() + 0.5, candidate.pos.getY() + 0.5, candidate.pos.getZ() + 0.5,
-                              candidate.level, isPlayer, candidate.level);
+            LightCluster cluster = ultraClusters.computeIfAbsent(candidate.pos, k -> new LightCluster());
+            cluster.add(candidate.pos.getX() + 0.5, candidate.pos.getY() + 0.5, candidate.pos.getZ() + 0.5,
+                        candidate.level, isPlayer, candidate.level);
+            cluster.source(LightSources.ENTITY, source);
         }
     }
 

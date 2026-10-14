@@ -32,6 +32,11 @@ public class LivelyLighting
 
         // Make sure the mod is recognized as server-side only
         context.registerExtensionPoint(IExtensionPoint.DisplayTest.class, () -> new IExtensionPoint.DisplayTest(() -> IExtensionPoint.DisplayTest.IGNORESERVERONLY, (a, b) -> true));
+
+        // What each light stands for, to clients that have the mod (light_source_colors); optional on both sides
+        if (net.minecraftforge.fml.ModList.get().isLoaded("camafy")) {
+            net.cama.livelylighting.network.LightSourceNet.register();
+        }
     }
 
     private void commonSetup(final FMLCommonSetupEvent event)
