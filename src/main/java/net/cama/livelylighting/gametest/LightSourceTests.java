@@ -80,7 +80,7 @@ public class LightSourceTests {
 
     private static boolean names(long[] sources, Entity entity) {
         for (int i = 0; i + 1 < sources.length; i += 2) {
-            if (sources[i] != LightSources.ENTITY || LightSources.entityId(sources[i + 1]) != entity.getId()) continue;
+            if (LightSources.kindOf(sources[i]) != LightSources.ENTITY || LightSources.entityId(sources[i + 1]) != entity.getId()) continue;
             int slot = LightSources.slot(sources[i + 1]);
             if ((LightSources.token(entity, slot) & 0x0FFFFFFF) == LightSources.token(sources[i + 1])) return true;
         }
@@ -134,6 +134,50 @@ public class LightSourceTests {
         helper.runAfterDelay(SETTLE + 8, () -> {
             if (fadingSeen[0] == 0) helper.fail("no light was seen fading after the torch was put away");
             holder.discard();
+            helper.succeed();
+        });
+    }
+
+    /** The level of {@code entity}'s source in {@code sources}, -1 when it isn't named. */
+    private static int levelOf(long[] sources, Entity entity) {
+        for (int i = 0; i + 1 < sources.length; i += 2) {
+            if (LightSources.kindOf(sources[i]) == LightSources.ENTITY && LightSources.entityId(sources[i + 1]) == entity.getId()) return LightSources.levelOf(sources[i]);
+        }
+        return -1;
+    }
+
+    /**
+     * A merged light carries each source's own light level (rounded to threes), so a client colours it by the brightest
+     * first: a torch zombie (14) and a soul torch zombie (10) in one spot give a light naming the torch at 15 and the
+     * soul torch at 9, and the packing keeps the higher level of a source noted twice.
+     */
+    @GameTest(template = PLATFORM, timeoutTicks = 120, batch = "lightSources")
+    public static void aMergedLightKeepsEachSourcesLevel(GameTestHelper helper) {
+        long[] packed = LightSources.with(LightSources.NONE, LightSources.packed(LightSources.ENTITY, 6), 7L);
+        packed = LightSources.with(packed, LightSources.packed(LightSources.ENTITY, 15), 7L);
+        packed = LightSources.with(packed, LightSources.packed(LightSources.ENTITY, 3), 7L);
+        if (packed.length != 2 || LightSources.kindOf(packed[0]) != LightSources.ENTITY || LightSources.levelOf(packed[0]) != 15) {
+            helper.fail("a source noted at 6, 15 and 3 should be kept once at 15: " + Arrays.toString(packed));
+        }
+        if (LightSources.levelOf(LightSources.packed(LightSources.FIRE, 1)) != 3 || LightSources.levelOf(LightSources.packed(LightSources.FIRE, 10)) != 9
+                || LightSources.levelOf(LightSources.packed(LightSources.FIRE, 14)) != 15) {
+            helper.fail("levels round to threes (1 -> 3, 10 -> 9, 14 -> 15)");
+        }
+        FakePlayer watcher = player(helper, "watcher-levels", 4, AIR, 4);
+        Zombie torch = torchZombie(helper, 12.5, AIR, 12.5);
+        Zombie soul = torchZombie(helper, 12.5, AIR, 12.5);
+        soul.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(Items.SOUL_TORCH));
+        helper.runAfterDelay(SETTLE, () -> {
+            Map<BlockPos, long[]> near = sourcesNear(helper, 12, AIR + 1, 12);
+            long[] both = near.values().stream().filter(sources -> names(sources, torch) && names(sources, soul)).findFirst().orElse(null);
+            if (both == null) helper.fail("no light names both zombies");
+            int torchLevel = levelOf(both, torch), soulLevel = levelOf(both, soul);
+            if (torchLevel < 12 || soulLevel > 9 || soulLevel <= 0) {
+                helper.fail("the merged light should carry the torch at about 15 and the soul torch at about 9: " + torchLevel + " / " + soulLevel);
+            }
+            watcher.discard();
+            torch.discard();
+            soul.discard();
             helper.succeed();
         });
     }

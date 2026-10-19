@@ -26,11 +26,13 @@ public class LightPropagator {
      * cluster that gives the position its level, both clusters' when two give it the same (LightSources).
      */
     public static void calculateLightField(ServerLevel level, Map<BlockPos, LightCluster> clusters, Map<BlockPos, Integer> desiredLights, Set<BlockPos> desiredPlayerLights, Map<BlockPos, Integer> desiredCarry, Map<BlockPos, long[]> desiredSources, boolean smoothing, boolean clusterGrowing, int maxRadius) {
+        // -Dlivelylighting.shipLampsGrow=true: a cluster of a ship's lamps alone grows as before (an A/B)
+        boolean lampsGrow = Boolean.getBoolean("livelylighting.shipLampsGrow");
         for (LightCluster cluster : clusters.values()) {
             cluster.normalize();
 
             float strength = cluster.strength;
-            if (!clusterGrowing) {
+            if (!clusterGrowing || (!lampsGrow && cluster.lampMembers > 0 && cluster.lampMembers == cluster.count)) {
                 strength = cluster.maxLightLevel;
             }
 

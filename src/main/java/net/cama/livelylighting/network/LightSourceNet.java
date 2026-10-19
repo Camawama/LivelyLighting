@@ -36,7 +36,9 @@ public final class LightSourceNet {
 
     /** Called once from the mod's constructor, on both sides. */
     public static void register() {
-        net = CamafyChannel.createOptional(new ResourceLocation(LivelyLighting.MODID, "light_sources"), "1");
+        // "2" (2026-10-17): each source's kind carries its level; an older client doesn't have the channel and keeps
+        // Colorful Lighting's own guess
+        net = CamafyChannel.createOptional(new ResourceLocation(LivelyLighting.MODID, "light_sources"), "2");
         net.clientbound(Lights.class, Lights::encode, Lights::decode, Lights::handle);
     }
 
@@ -68,7 +70,7 @@ public final class LightSourceNet {
                 int pairs = Math.min(entry.sources.length / 2, 8);
                 buf.writeByte(pairs);
                 for (int i = 0; i < pairs; i++) {
-                    buf.writeByte((int) entry.sources[2 * i]);
+                    buf.writeShort((int) entry.sources[2 * i] & 0xFFFF); // the kind and, above it, the source's level
                     buf.writeLong(entry.sources[2 * i + 1]);
                 }
             }
@@ -82,7 +84,7 @@ public final class LightSourceNet {
                 int pairs = Math.min(buf.readUnsignedByte(), 8);
                 long[] sources = new long[2 * pairs];
                 for (int i = 0; i < pairs; i++) {
-                    sources[2 * i] = buf.readUnsignedByte();
+                    sources[2 * i] = buf.readUnsignedShort();
                     sources[2 * i + 1] = buf.readLong();
                 }
                 entries.add(new Entry(pos, sources));

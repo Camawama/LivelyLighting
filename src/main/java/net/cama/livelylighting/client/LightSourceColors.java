@@ -223,25 +223,37 @@ public final class LightSourceColors {
     }
 
     /**
-     * Works out a light's colour from its sources: every source that resolves, per channel at most; {@code pending}
-     * while a source can't be told yet. True when the colour changed.
+     * Works out a light's colour from its sources: the light each source gives (its colour at its own level, as
+     * Colorful Lighting spreads light per channel), the brightest of each channel, brought back to full intensity for
+     * the brightest source (the light block's level scales it again), so a burning mob's fire (15) colours its light
+     * and the plain white of the enchanted sword it holds (6) only warms it (every source counted at full strength,
+     * white won every channel, 2026-10-17); {@code pending} while a source can't be told yet. True when the colour
+     * changed.
      */
     private static boolean resolve(ClientLevel level, Light light) {
-        int r = -1, g = -1, b = -1;
+        int r = -1, g = -1, b = -1, brightest = 0;
         boolean pending = false;
         long[] sources = light.sources;
         for (int i = 0; i + 1 < sources.length; i += 2) {
-            int c = colourOf(level, light, (int) sources[i], sources[i + 1]);
+            int c = colourOf(level, light, LightSources.kindOf(sources[i]), sources[i + 1]);
             if (c == PENDING) {
                 pending = true;
                 continue;
             }
             if (c < 0) continue;
-            r = Math.max(r, (c >> 16) & 0xFF);
-            g = Math.max(g, (c >> 8) & 0xFF);
-            b = Math.max(b, c & 0xFF);
+            int sourceLevel = LightSources.levelOf(sources[i]);
+            if (sourceLevel <= 0) sourceLevel = 15; // an older server: every source at full
+            brightest = Math.max(brightest, sourceLevel);
+            r = Math.max(r, ((c >> 16) & 0xFF) * sourceLevel);
+            g = Math.max(g, ((c >> 8) & 0xFF) * sourceLevel);
+            b = Math.max(b, (c & 0xFF) * sourceLevel);
         }
         light.pending = pending;
+        if (r >= 0 && brightest > 0) {
+            r = Math.min(255, r / brightest);
+            g = Math.min(255, g / brightest);
+            b = Math.min(255, b / brightest);
+        }
         int rgb = r < 0 ? light.rgb : r << 16 | g << 8 | b;
         if (rgb == light.rgb) return false;
         light.rgb = rgb;

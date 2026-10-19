@@ -105,6 +105,13 @@ public class LivelyConfig {
     // deferred. 0 = no budget.
     public int small_ship_updates_per_tick = 6;
     public int small_ship_max_blocks = 8;
+    // At most this many of a ship's own lamps (its luminous blocks) are projected into the world as
+    // it moves: the brightest first, then the ones nearest a player (chosen again every three
+    // seconds with the ship's lamp scan); the rest give the world no light (the ship's own blocks
+    // are lit by its lamps as ever). Every projected lamp is a light block that moves with the
+    // ship, a block change on the server and a light update on every client each time it crosses a
+    // cell, so a ship carrying very many lamps cost clients their frames (2026-10-17). 0 = no cap.
+    public int max_lamps_per_ship = 32;
     // Whether light blocks (minecraft:light) found on ships and in the world count as lamps that
     // light nearby ships and the world around a ship. Off, only genuinely luminous blocks do: a
     // light block of the mod's own left behind by a crash (its record lost with the unsaved data)

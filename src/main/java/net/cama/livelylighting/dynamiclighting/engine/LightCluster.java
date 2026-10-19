@@ -19,9 +19,28 @@ public class LightCluster {
     // merged light keeps the colour of each lamp or holder in it on clients.
     private long[] sources = LightSources.NONE;
 
-    /** Adds a member's source (LightSources.ENTITY, WORLD_LAMP, SHIP_LAMP or FIRE with its value). */
+    // Members that are a ship's own lamps projected into the world. A cluster of nothing else
+    // never grows (LightPropagator.calculateLightField): growth is for lights spread over a span
+    // (several holders' torches); a ship's lamps already light the ship, and a merged cluster of
+    // them grown by their span put up to a hundred light blocks round its centroid, all moving
+    // with the ship (2026-10-17).
+    public int lampMembers;
+
+    /** Counts the member just added as a ship's lamp. */
+    public LightCluster lamp() {
+        lampMembers++;
+        return this;
+    }
+
+    // the level of the member last added: its source is noted at that level (LightSources.levelOf)
+    private int lastLevel = 15;
+
+    /**
+     * Adds the source of the member just added (LightSources.ENTITY, WORLD_LAMP, SHIP_LAMP or FIRE with its value), at
+     * that member's level: clients colour a merged light by its brightest source first.
+     */
     public LightCluster source(int kind, long value) {
-        sources = LightSources.with(sources, kind, value);
+        sources = LightSources.with(sources, LightSources.packed(kind, lastLevel), value);
         return this;
     }
 
@@ -30,6 +49,7 @@ public class LightCluster {
     }
 
     public void add(double ex, double ey, double ez, int light, boolean player, int carry) {
+        lastLevel = light;
         x += ex;
         y += ey;
         z += ez;

@@ -109,6 +109,12 @@ public class LightLogic {
      * ships brought up to date on a turn, ships held waiting}.
      */
     private static final long[] SHIP_BUDGET_STATS = new long[4];
+    /** {ships whose lamps were capped at a scan, lamps left out} (the harness). */
+    private static final long[] SHIP_LAMP_CAP_STATS = new long[2];
+
+    public static long[] shipLampCapStats() {
+        return SHIP_LAMP_CAP_STATS.clone();
+    }
 
     public static long[] shipBudgetStats() {
         return SHIP_BUDGET_STATS.clone();
@@ -461,6 +467,8 @@ public class LightLogic {
                     .computeIfAbsent(dimension, k -> new HashMap<>());
 
             List<ShipWorldEmitter> shipWorldEmitters = new ArrayList<>();
+            // -Dlivelylighting.maxLampsPerShip=<n> overrides the config for a run (an A/B)
+            int lampCap = Integer.getInteger("livelylighting.maxLampsPerShip", config.max_lamps_per_ship);
             for (Map.Entry<Long, ShipRef> shipEntry : nearbyShips.entrySet()) {
                 long shipId = shipEntry.getKey();
                 ShipRef ship = shipEntry.getValue();
@@ -469,7 +477,7 @@ public class LightLogic {
                 Map<BlockPos, Integer> emitters = shipEmitterCache.get(shipId);
                 long lastScan = shipEmitterScanTime.getOrDefault(shipId, Long.MIN_VALUE);
                 if (emitters == null || level.getGameTime() - lastScan >= SHIP_EMITTER_RESCAN_INTERVAL) {
-                    emitters = scanShipForEmitters(ship, ownPlacedLights, config.light_blocks_are_lamps);
+                    emitters = capShipLamps(level, ship, scanShipForEmitters(ship, ownPlacedLights, config.light_blocks_are_lamps), lampCap);
                     shipEmitterCache.put(shipId, emitters);
                     shipEmitterScanTime.put(shipId, level.getGameTime());
                 }
@@ -493,7 +501,7 @@ public class LightLogic {
                     // re-runs the ignition fade as the ship moves.
                     LightCluster lampCluster = worldClusters.computeIfAbsent(gridPos, k -> new LightCluster());
                     lampCluster.add(worldPos.x, worldPos.y, worldPos.z, emission, false, emission);
-                    lampCluster.source(LightSources.SHIP_LAMP, shipPos.asLong());
+                    lampCluster.lamp().source(LightSources.SHIP_LAMP, shipPos.asLong());
 
                     shipWorldEmitters.add(new ShipWorldEmitter(shipId, worldPos.x, worldPos.y, worldPos.z, emission,
                             LightSources.SHIP_LAMP, shipPos.asLong()));
@@ -1395,6 +1403,32 @@ public class LightLogic {
             projectIntoShipyard(level, ship, new Vec3(emitter.x, emitter.y, emitter.z), emitter.emission, false, exactClusters,
                     emitter.sourceKind, emitter.sourceValue);
         }
+    }
+
+    /**
+     * At most {@code cap} of a ship's lamps (max_lamps_per_ship): the brightest first, then the nearest a player
+     * (their world positions now); the rest are left out until the next scan. Every projected lamp is a light block
+     * moving with the ship, so a ship carrying very many lamps cost clients their frames (2026-10-17).
+     */
+    private static Map<BlockPos, Integer> capShipLamps(ServerLevel level, ShipRef ship, Map<BlockPos, Integer> emitters, int cap) {
+        if (cap <= 0 || emitters.size() <= cap) return emitters;
+        List<? extends Player> players = level.players();
+        record Ranked(BlockPos pos, int emission, double playerDistSq) {}
+        List<Ranked> ranked = new ArrayList<>(emitters.size());
+        for (Map.Entry<BlockPos, Integer> entry : emitters.entrySet()) {
+            Vec3 world = ship.toWorld(Vec3.atCenterOf(entry.getKey()));
+            double nearest = Double.MAX_VALUE;
+            if (world != null) {
+                for (Player player : players) nearest = Math.min(nearest, player.distanceToSqr(world));
+            }
+            ranked.add(new Ranked(entry.getKey(), entry.getValue(), nearest));
+        }
+        ranked.sort((a, b) -> a.emission != b.emission ? Integer.compare(b.emission, a.emission) : Double.compare(a.playerDistSq, b.playerDistSq));
+        Map<BlockPos, Integer> kept = new LinkedHashMap<>();
+        for (int i = 0; i < cap; i++) kept.put(ranked.get(i).pos, ranked.get(i).emission);
+        SHIP_LAMP_CAP_STATS[0]++;
+        SHIP_LAMP_CAP_STATS[1] += emitters.size() - cap;
+        return kept;
     }
 
     /**
