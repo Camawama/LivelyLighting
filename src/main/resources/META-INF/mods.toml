@@ -26,13 +26,15 @@ logoFile="assets/livelylighting/logo.png"
     side="BOTH"
 
 # Camafy, the shared CamaCraft library: required. Lively Lighting reaches Valkyrien
-# Skies only through it. Server-side only, like Lively Lighting itself.
+# Skies only through it. Required on both sides: clients don't need Lively Lighting,
+# but one that has it runs its light engine in singleplayer, and Forge never checks a
+# SERVER-side dependency on a client (singleplayer without Camafy loaded, then failed).
 [[dependencies.${mod_id}]]
     modId="camafy"
     mandatory=true
     versionRange="${camafy_version_range}"
     ordering="AFTER"
-    side="SERVER"
+    side="BOTH"
 
 [[dependencies.${mod_id}]]
     modId="valkyrienskies"
