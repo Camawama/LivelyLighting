@@ -2,6 +2,10 @@
 
 ## 0.4.4 — Unreleased
 
+### Added
+
+- **Curio slots light up** (2026-11-06). With Curios installed, an item with a light level worn in any curio slot (a torch or lantern on a belt) lights its wearer like one in the off hand: the server takes the brightest worn curio into the entity's light (`LightCalculator`; a `curios` source of its own on the cluster path), clients are told the light comes from the curios (`LightSources.SLOT_CURIOS`, the token a fold of the worn items' ids both sides compute alike) and colour it from the first worn curio Colorful Lighting knows a colour for (`LightSourceColors.curioColour`). Curios is reached by reflection (`compat.CuriosLights`); nothing changes without it. Config `curios_lighting` (on). The mod also puts the torch, soul torch, lantern and soul lantern in Curios' `curios:belt` tag, so a pack with a belt slot (Spyglass Improvements adds one to players) can hang a lantern there. Pack harness `ll_curios` (the main pack).
+
 ### Fixed
 
 - **Camafy is required on both sides** (2026-10-25). Its `mods.toml` entry was `side="SERVER"`, and Forge never checks a server-side dependency on a client, so a singleplayer install without Camafy loaded and then failed once the light engine ran in its integrated server (`LightManager`, `LightLogic`, `LightPropagator` use Camafy's ship classes unguarded). Now `side="BOTH"`: Forge names the missing Camafy at startup. Clients still don't need Lively Lighting to join a server that runs it.

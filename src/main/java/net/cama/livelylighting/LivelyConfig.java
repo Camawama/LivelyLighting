@@ -134,6 +134,8 @@ public class LivelyConfig {
     // light, the dim edge of a lamp's light on a ship (all white before, 2026-10-12). Needs the mod
     // on the client too; clients without it keep Colorful Lighting's own guess.
     public boolean light_source_colors = true;
+    /** With Curios: an item with a light level worn in a curio slot (a torch or lantern on a belt) lights its wearer. */
+    public boolean curios_lighting = true;
 
     public Experimental experimental = new Experimental();
 

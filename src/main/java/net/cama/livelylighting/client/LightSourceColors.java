@@ -284,6 +284,7 @@ public final class LightSourceColors {
                         case LightSources.SLOT_CHEST -> stackColour(entity, EquipmentSlot.CHEST);
                         case LightSources.SLOT_LEGS -> stackColour(entity, EquipmentSlot.LEGS);
                         case LightSources.SLOT_FEET -> stackColour(entity, EquipmentSlot.FEET);
+                        case LightSources.SLOT_CURIOS -> curioColour(entity);
                         case LightSources.SLOT_CARRIED -> {
                             BlockState carried = entity instanceof EnderMan enderman ? enderman.getCarriedBlock() : null;
                             yield carried == null ? -1 : (int) itemColor.invokeExact(new ItemStack(carried.getBlock()));
@@ -317,5 +318,15 @@ public final class LightSourceColors {
         if (!(entity instanceof LivingEntity living)) return -1;
         ItemStack stack = living.getItemBySlot(slot);
         return stack.isEmpty() ? -1 : (int) itemColor.invokeExact(stack);
+    }
+
+    /** The first worn curio Colorful Lighting knows a colour for (a lantern on a belt), else none. */
+    private static int curioColour(Entity entity) throws Throwable {
+        if (!(entity instanceof LivingEntity living)) return -1;
+        for (ItemStack stack : net.cama.livelylighting.compat.CuriosLights.worn(living)) {
+            int c = (int) itemColor.invokeExact(stack);
+            if (c >= 0) return c;
+        }
+        return -1;
     }
 }

@@ -674,6 +674,17 @@ public class LightLogic {
                 }
             }
             
+            // Curios (a torch or lantern on a belt): the brightest worn curio as one source
+            if (config.curios_lighting && net.cama.livelylighting.compat.CuriosLights.loaded()) {
+                LightData curios = new LightData(0, false, Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+                for (net.minecraft.world.item.ItemStack worn : net.cama.livelylighting.compat.CuriosLights.worn(living)) {
+                    LightData one = LightCalculator.getItemLightLevel(worn, entity, level, config);
+                    if (one.level > curios.level) curios = one;
+                }
+                processLightData(entity, level, worldClusters, worldUltraClusters, config, useVs, curios, "curios", gameState, velocity);
+                if (curios.level > 0) foundLight = true;
+            }
+
             // Special Enderman check
             if (entity instanceof net.minecraft.world.entity.monster.EnderMan enderman) {
                 net.minecraft.world.level.block.state.BlockState heldBlock = enderman.getCarriedBlock();

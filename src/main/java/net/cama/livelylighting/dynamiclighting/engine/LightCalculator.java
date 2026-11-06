@@ -238,6 +238,13 @@ public class LightCalculator {
             if (chest.level > best.level) best = chest;
             if (legs.level > best.level) best = legs;
             if (feet.level > best.level) best = feet;
+            // Curios (a torch or lantern on a belt): the brightest worn curio
+            if (config.curios_lighting && net.cama.livelylighting.compat.CuriosLights.loaded()) {
+                for (ItemStack worn : net.cama.livelylighting.compat.CuriosLights.worn(living)) {
+                    LightData curio = getItemLightLevel(worn, entity, level, config);
+                    if (curio.level > best.level) best = curio;
+                }
+            }
             
             // Enderman check
             if (entity instanceof EnderMan enderman) {

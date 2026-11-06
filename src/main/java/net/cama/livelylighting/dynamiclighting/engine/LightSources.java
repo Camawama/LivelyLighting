@@ -38,7 +38,7 @@ public final class LightSources {
 
     /** Where an entity's light comes from (its source id in LightLogic). */
     public static final int SLOT_COMBINED = 0, SLOT_MAINHAND = 1, SLOT_OFFHAND = 2, SLOT_HEAD = 3, SLOT_CHEST = 4,
-            SLOT_LEGS = 5, SLOT_FEET = 6, SLOT_CARRIED = 7, SLOT_BODY = 8, SLOT_FORCED = 9;
+            SLOT_LEGS = 5, SLOT_FEET = 6, SLOT_CARRIED = 7, SLOT_BODY = 8, SLOT_FORCED = 9, SLOT_CURIOS = 10;
     /** {@link #SLOT_BODY} tokens. */
     public static final int BODY_OTHER = 0, BODY_FIRE = 1, BODY_GLOWING = 2;
 
@@ -91,6 +91,7 @@ public final class LightSources {
             case "legs" -> SLOT_LEGS;
             case "feet" -> SLOT_FEET;
             case "carried_block" -> SLOT_CARRIED;
+            case "curios" -> SLOT_CURIOS;
             case "body" -> SLOT_BODY;
             case "forced" -> SLOT_FORCED;
             default -> SLOT_COMBINED;
@@ -114,6 +115,7 @@ public final class LightSources {
                 BlockState carried = entity instanceof EnderMan enderman ? enderman.getCarriedBlock() : null;
                 yield carried == null ? 0 : BuiltInRegistries.BLOCK.getId(carried.getBlock()) + 1;
             }
+            case SLOT_CURIOS -> entity instanceof LivingEntity living ? net.cama.livelylighting.compat.CuriosLights.token(living) : 0;
             case SLOT_BODY -> entity.isOnFire() ? BODY_FIRE
                     : entity instanceof LivingEntity living && living.hasEffect(MobEffects.GLOWING) ? BODY_GLOWING : BODY_OTHER;
             case SLOT_FORCED -> 0;
@@ -121,6 +123,7 @@ public final class LightSources {
                 int mix = entity.isOnFire() ? 1 : 0;
                 if (entity instanceof LivingEntity living) {
                     for (EquipmentSlot s : EquipmentSlot.values()) mix = mix * 31 + rawId(living.getItemBySlot(s));
+                    mix = mix * 31 + net.cama.livelylighting.compat.CuriosLights.token(living);
                 }
                 yield mix;
             }
