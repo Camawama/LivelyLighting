@@ -150,8 +150,10 @@ public class LivelyConfig {
     public Client client = new Client();
 
     public static class Client {
-        // "auto": the shader renderer where it can run (Embeddium, no shader pack), the lightmap renderer otherwise;
-        // "shader", "lightmap" force one; "off" draws nothing (the server's blocks, if any, still show).
+        // "auto" (default): the shader renderer where it can run (Embeddium, no shader pack), which rebuilds no mesh when a
+        // light moves, the lightmap renderer otherwise; "shader" and "lightmap" force one (the lightmap renderer puts the
+        // light into the meshes, entities and particles through the light lookups: Colorful Lighting's, in colour, propagated
+        // and tinted by glass); "off" draws nothing (the server's blocks, if any, still show).
         public String renderer = "auto";
         // "diamond": a level lost per block of Manhattan distance, vanilla's look; "round": per block of straight
         // distance, a round light.

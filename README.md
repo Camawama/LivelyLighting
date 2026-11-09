@@ -43,7 +43,7 @@ an item in `#livelylighting:flashlights` a flashlight.
 *   **`transmission`** (`voxel`, `off`): how dynamic light passes through blocks on the shader path (Colorful Lighting 2.8.1): a wall stops it and stained glass tints it, as the block mode always did through Colorful Lighting's filters; `off` lets it through everything, as other dynamic lighting mods do.
 *   **`lightmap_propagate`** (true): on the lightmap path a point light is a lamp Colorful Lighting's engine propagates: stopped by walls, tinted by glass, read by shader packs as block light.
 
-Overrides for a run: `-Dlivelylighting.mode=server_blocks|client|hybrid` (the server), `-Dlivelylighting.clientRenderer=...` and
+Overrides for a run: `-Dlivelylighting.mode=server_blocks|client|hybrid` (the server), `-Dlivelylighting.clientRenderer=...`, `-Dlivelylighting.clientTransmission=off` (the shader path's transmission march off, for an A/B) and
 `-Dlivelylighting.clientMode=client` (a client draws even where the server places blocks).
 
 ## Other mods' lights

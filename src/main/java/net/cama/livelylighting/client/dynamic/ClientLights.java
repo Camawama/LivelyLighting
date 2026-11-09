@@ -82,7 +82,8 @@ public final class ClientLights {
         if (colorful) {
             ColorfulBridge.setLimits(config.client.shader_max_lights, config.client.shader_max_distance);
             ColorfulBridge.setRebuildBudget(Math.max(8, config.client.lightmap_rebuilds_per_tick * 4));
-            ColorfulBridge.setTransmission("voxel".equalsIgnoreCase(config.client.transmission));
+            String transmission = System.getProperty("livelylighting.clientTransmission", config.client.transmission);
+            ColorfulBridge.setTransmission("voxel".equalsIgnoreCase(transmission));
             ColorfulBridge.setPropagation(config.client.lightmap_propagate);
             ColorfulBridge.setRebuildBudget(Math.max(8, config.client.lightmap_rebuilds_per_tick * 4));
             // the lightmap renderer bakes the lights into meshes; the shader renderer leaves meshes to Colorful Lighting's shaders
