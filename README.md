@@ -39,10 +39,20 @@ an item in `#livelylighting:flashlights` a flashlight.
 *   **`falloff`**: `diamond` (a level lost per block of Manhattan distance, vanilla's look) or `round` (per block of straight distance). Default `diamond`.
 *   **`lightmap_rebuilds_per_tick`** (12), **`lightmap_max_reach`** (15), **`lightmap_max_moving_lamps`** (32): the lightmap path's budgets.
 *   **`shader_max_lights`** (16, at most 64), **`shader_max_distance`** (64): the lights the shaders get per frame, nearest the camera first; every terrain vertex in view evaluates each of them.
-*   **`spot_beams`** (false): reserved for a faint beam drawn in the air.
+*   **`spot_beams`** (false): a faint additive cone in the air along every spot light.
+*   **`transmission`** (`voxel`, `off`): how dynamic light passes through blocks on the shader path (Colorful Lighting 2.8.1): a wall stops it and stained glass tints it, as the block mode always did through Colorful Lighting's filters; `off` lets it through everything, as other dynamic lighting mods do.
+*   **`lightmap_propagate`** (true): on the lightmap path a point light is a lamp Colorful Lighting's engine propagates: stopped by walls, tinted by glass, read by shader packs as block light.
 
 Overrides for a run: `-Dlivelylighting.mode=server_blocks|client|hybrid` (the server), `-Dlivelylighting.clientRenderer=...` and
 `-Dlivelylighting.clientMode=client` (a client draws even where the server places blocks).
+
+## Other mods' lights
+
+A mod registers a `DynamicLightProvider` with Camafy's `light.DynamicLights` (0.1.84) and its lights, point or spot, are drawn with this
+mod's own: faded the same, in their colour, through the same renderers. `DynamicLights.lightAt(level, pos)` tells any mod how much dynamic
+light reaches a place. MKW Mobility's karts carry headlights this way. `client.spot_beams` draws a faint cone in the air along every spot
+light. Resource packs' LambDynamicLights item files (`assets/<ns>/dynamiclights/item/*.json`) are read on the client too, as definitions of
+the lowest priority.
 
 ## Moving structures
 

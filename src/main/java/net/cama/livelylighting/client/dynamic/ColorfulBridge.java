@@ -22,7 +22,8 @@ import java.util.List;
 final class ColorfulBridge {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static boolean registered;
-    private static MethodHandle point, spot, setMeshLighting, shaderAvailable, setLimits, setBudget;
+    private static MethodHandle point, spot, setMeshLighting, shaderAvailable, setLimits, setBudget, setTransmission, setPropagation;
+    private static Boolean sentTransmission, sentPropagation;
     private static int sentLights = -1, sentBudget = -1;
     private static float sentDistance = -1f;
 
@@ -58,6 +59,17 @@ final class ColorfulBridge {
             }
             try {
                 Class<?> shaderLights = Class.forName("net.camacraft.colorfullighting.compat.dynamiclights.ShaderDynamicLights");
+                setTransmission = lookup.findStatic(shaderLights, "setTransmission", MethodType.methodType(void.class, boolean.class));
+            } catch (ReflectiveOperationException e) {
+                setTransmission = null;
+            }
+            try {
+                setPropagation = lookup.findStatic(compat, "setExternalPropagation", MethodType.methodType(void.class, boolean.class));
+            } catch (NoSuchMethodException e) {
+                setPropagation = null;
+            }
+            try {
+                Class<?> shaderLights = Class.forName("net.camacraft.colorfullighting.compat.dynamiclights.ShaderDynamicLights");
                 setLimits = lookup.findStatic(shaderLights, "setLimits", MethodType.methodType(void.class, int.class, float.class));
             } catch (ReflectiveOperationException e) {
                 setLimits = null;
@@ -81,6 +93,26 @@ final class ColorfulBridge {
         } catch (Throwable t) {
             LOGGER.warn("[LivelyLighting] Colorful Lighting is present but has no dynamic light provider API (2.8.0+): drawing light standalone ({})", t.toString());
             return false;
+        }
+    }
+
+    /** Whether Colorful Lighting propagates point lights as lamps on the lightmap path (client.lightmap_propagate). */
+    static void setPropagation(boolean on) {
+        if (setPropagation == null || (sentPropagation != null && sentPropagation == on)) return;
+        try {
+            setPropagation.invoke(on);
+            sentPropagation = on;
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** Light through blocks on the shader path (client.transmission: walls stop it, glass tints it), sent when it changes. */
+    static void setTransmission(boolean on) {
+        if (setTransmission == null || (sentTransmission != null && sentTransmission == on)) return;
+        try {
+            setTransmission.invoke(on);
+            sentTransmission = on;
+        } catch (Throwable ignored) {
         }
     }
 

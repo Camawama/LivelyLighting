@@ -50,6 +50,11 @@ public final class ClientLightEngine {
     private final Map<Long, Fade> fades = new HashMap<>();
     private final ShipLamps shipLamps = new ShipLamps();
     private final ContraptionLamps contraptionLamps = new ContraptionLamps();
+    /** The API lights at the moment of the frame being drawn, by key (filled once per frame for the renderers). */
+    private final Map<Long, net.camacraft.camafy.light.LightSource> apiFrame = new HashMap<>();
+    private float apiFramePartialTick = Float.NaN;
+    private long apiFrameTick = -1;
+    private static final long API_KEY_BIT = 0x4000000000000000L;
     private volatile List<DynamicLight> lights = Collections.emptyList();
     private long tick;
 
@@ -96,9 +101,86 @@ public final class ClientLightEngine {
         }
         shipLamps.collect(level, camera, config, falloff, out);
         contraptionLamps.collect(level, camera, config, falloff, out);
+        collectApi(level, config, falloff, out);
         // fades that were not wanted this tick run out
         fades.entrySet().removeIf(e -> tick - e.getValue().lastSeen > 1200);
         lights = Collections.unmodifiableList(out);
+    }
+
+    /** Other mods' lights through Camafy's DynamicLights (kart headlights, an NPC's torch), faded like the mod's own. */
+    private void collectApi(ClientLevel level, LivelyConfig config, Falloff falloff, List<DynamicLight> out) {
+        if (!net.camacraft.camafy.light.DynamicLights.hasProviders()) return;
+        List<net.camacraft.camafy.light.LightSource> sources = new ArrayList<>();
+        net.camacraft.camafy.light.DynamicLights.collect(level, 1.0f, sources::add);
+        for (net.camacraft.camafy.light.LightSource src : sources) {
+            long key = src.key() ^ API_KEY_BIT;
+            float lvl = fadeLevel(key, src.level(), config.smoothing && config.smoothing_all_entities, config);
+            if (lvl <= 0) continue;
+            final Vec3 tickPos = src.pos();
+            final Vec3 tickDir = src.direction();
+            DynamicLight.Mover mover = pt -> {
+                net.camacraft.camafy.light.LightSource now = apiAt(level, pt, src.key());
+                return now == null ? tickPos : now.pos();
+            };
+            DynamicLight.Mover dir = !src.isSpot() ? null : pt -> {
+                net.camacraft.camafy.light.LightSource now = apiAt(level, pt, src.key());
+                return now == null || now.direction() == null ? tickDir : now.direction();
+            };
+            out.add(new DynamicLight(key, DynamicLight.Kind.API, mover, dir, lvl, src.rgb(), src.isSpot() ? LightShape.SPOT : LightShape.POINT,
+                    src.isSpot() ? src.outerDegrees() : 0f, Math.max(1f, src.reach()), falloff));
+        }
+    }
+
+    /** The API lights at a moment of the frame, collected once per frame (1 = the tick's own positions). */
+    private net.camacraft.camafy.light.LightSource apiAt(ClientLevel level, float partialTick, long key) {
+        if (partialTick >= 1.0f) return null;
+        if (apiFramePartialTick != partialTick || apiFrameTick != tick) {
+            apiFrame.clear();
+            net.camacraft.camafy.light.DynamicLights.collect(level, partialTick, s -> apiFrame.put(s.key(), s));
+            apiFramePartialTick = partialTick;
+            apiFrameTick = tick;
+        }
+        return apiFrame.get(key);
+    }
+
+    /** Fades a source's level toward what is wanted (the server module's fade_in_rate and trail_decay_rate), 0 when out. */
+    private float fadeLevel(long key, float wanted, boolean smoothing, LivelyConfig config) {
+        Fade fade = fades.get(key);
+        if (!smoothing) {
+            if (wanted <= 0) {
+                fades.remove(key);
+                return 0;
+            }
+            if (fade == null) fades.put(key, fade = new Fade());
+            fade.lastSeen = tick;
+            fade.established = fade.held = wanted;
+            return wanted;
+        }
+        if (fade == null) {
+            if (wanted <= 0) return 0;
+            fades.put(key, fade = new Fade());
+        }
+        fade.lastSeen = tick;
+        int fadeIn = Math.max(1, config.fade_in_rate), decay = Math.max(1, config.trail_decay_rate);
+        if (wanted > 0) {
+            fade.established = Math.min(wanted, fade.established + fadeIn);
+            fade.held = fade.established;
+        } else {
+            fade.established = 0;
+            fade.held = Math.max(0, fade.held - decay);
+            if (fade.held <= 0) fades.remove(key);
+        }
+        return fade.held;
+    }
+
+    /** The dynamic light (0 to 15) this client's lights give a world position, for Camafy's DynamicLights.lightAt. */
+    public float levelAt(Vec3 pos) {
+        double best = 0;
+        for (DynamicLight light : lights) {
+            double l = light.levelAt(pos.x, pos.y, pos.z);
+            if (l > best) best = l;
+        }
+        return (float) Math.min(15, best);
     }
 
     private static boolean shouldCheck(Entity entity, LivelyConfig config) {

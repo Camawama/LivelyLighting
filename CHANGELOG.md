@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.5.1 — Unreleased
+
+### Added
+
+- **Other mods' lights** (2026-11-09). Camafy 0.1.84's `light.DynamicLights`: a mod registers a provider and its point lights and spot cones
+  are drawn with the mod's own (faded the same, in their colour); `DynamicLights.lightAt` is answered from what the client draws. MKW
+  Mobility's karts get headlights this way. Camafy 0.1.84 is the floor now.
+- **Spot beams** (`client.spot_beams`): a faint additive cone in the air along a spot light, brightest at the light and gone at its range.
+- **LambDynamicLights item files** (`assets/<ns>/dynamiclights/item/*.json`) are read on the client at every resource reload as definitions
+  of the lowest priority, so a pack's existing light sources light here without conversion.
+- **Light through blocks** (`client.transmission`: `voxel`, on by default): with Colorful Lighting 2.8.1 the shader path marches each light through
+  the blocks round the camera: a wall stops it (a torch behind a wall lights neither the room beyond nor the ground through the floor) and
+  stained glass tints it, as Colorful Lighting's filters tinted the block mode's light. `off` lets light through everything, as other dynamic
+  lighting mods do.
+- **Propagated point lights on the lightmap path** (`client.lightmap_propagate`, on): with Colorful Lighting 2.8.1 a point light is a lamp its
+  engine propagates, stopped by walls, tinted by glass, read by shader packs as block light.
+
 ## 0.5.0 — Unreleased
 
 ### Added

@@ -52,6 +52,8 @@ import java.util.regex.Pattern;
 public class LightCalculator {
 
     private static final Map<Item, LightData> itemCache = new ConcurrentHashMap<>();
+    /** Definitions of the lowest priority (LambDynamicLights-format resource files on the client): used when nothing else names the item. */
+    private static volatile Map<Item, LightData> fallbackItems = Map.of();
     private static final List<RegexLightData> regexItems = new CopyOnWriteArrayList<>();
 
     private static final Map<EntityType<?>, LightData> entityCache = new ConcurrentHashMap<>();
@@ -73,6 +75,12 @@ public class LightCalculator {
             LightShape.SPOT, LightShape.DEFAULT_CONE_DEGREES, LightShape.DEFAULT_SPOT_RANGE, -1);
 
     private static final Gson GSON = new Gson();
+
+    /** Replaces the fallback item definitions (the client's resource reload); the item cache is dropped so they take. */
+    public static void setFallbackItemDefinitions(Map<Item, LightData> definitions) {
+        fallbackItems = definitions == null ? Map.of() : Map.copyOf(definitions);
+        itemCache.clear();
+    }
 
     public static void reloadConfig() {
         itemCache.clear();
@@ -400,6 +408,7 @@ public class LightCalculator {
         if (data == null && item.builtInRegistryHolder().is(ModTags.Items.FLASHLIGHTS)) {
             data = FLASHLIGHT_LIGHT_DATA;
         }
+        if (data == null) data = fallbackItems.get(item);
         if (data == null && config.auto_detect_block_light && item instanceof BlockItem blockItem && !config.auto_detect_blacklist.contains(id)) {
             // Auto-detect block light
             Block block = blockItem.getBlock();

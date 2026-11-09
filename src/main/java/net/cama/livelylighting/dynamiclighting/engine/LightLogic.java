@@ -441,6 +441,27 @@ public class LightLogic {
             }
         }
 
+        // Other mods' lights through Camafy's DynamicLights (kart headlights): placed as point lights of their level where a
+        // player the engine lights for can see them (a spot's cone is the client module's; here it is a point light)
+        if (net.camacraft.camafy.light.DynamicLights.hasProviders() && !litFor.isEmpty()) {
+            List<net.camacraft.camafy.light.LightSource> apiLights = new ArrayList<>();
+            net.camacraft.camafy.light.DynamicLights.collect(level, 1.0f, apiLights::add);
+            for (net.camacraft.camafy.light.LightSource src : apiLights) {
+                if (sourceCount >= maxSources) break;
+                int lvl = Math.min(15, Math.round(src.level()));
+                if (lvl <= 0) continue;
+                Vec3 at = src.pos();
+                boolean seen = false;
+                for (Player p : litFor) {
+                    if (Math.max(Math.abs(p.getX() - at.x), Math.max(Math.abs(p.getY() - at.y), Math.abs(p.getZ() - at.z))) <= viewDistance) { seen = true; break; }
+                }
+                if (!seen) continue;
+                sourceCount++;
+                BlockPos gridPos = new BlockPos((int) Math.floor(at.x / mergeDistance), (int) Math.floor(at.y / mergeDistance), (int) Math.floor(at.z / mergeDistance));
+                worldClusters.computeIfAbsent(gridPos, k -> new LightCluster()).add(at.x, at.y, at.z, lvl, false, lvl);
+            }
+        }
+
         // Valkyrien Skies: project each nearby ship's own light-emitting blocks
         // into the world as dynamic light sources. As the ship moves and rotates,
         // the world light blocks follow, so the ship's lamps appear to illuminate

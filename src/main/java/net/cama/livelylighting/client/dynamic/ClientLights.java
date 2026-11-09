@@ -45,6 +45,9 @@ public final class ClientLights {
         if (ModList.get().isLoaded("colorful_lighting")) {
             colorful = ColorfulBridge.register(ENGINE);
         }
+        // other mods ask Camafy how much dynamic light reaches a place; this client answers from what it draws
+        net.camacraft.camafy.light.DynamicLights.setQuery((level, pos) -> drawing() ? ENGINE.levelAt(pos) : 0f);
+        MinecraftForge.EVENT_BUS.addListener(SpotBeams::render);
         LOGGER.info("[LivelyLighting] client module ready ({})", colorful ? "Colorful Lighting draws the light" : "standalone lightmap renderer");
     }
 
@@ -79,6 +82,8 @@ public final class ClientLights {
         if (colorful) {
             ColorfulBridge.setLimits(config.client.shader_max_lights, config.client.shader_max_distance);
             ColorfulBridge.setRebuildBudget(Math.max(8, config.client.lightmap_rebuilds_per_tick * 4));
+            ColorfulBridge.setTransmission("voxel".equalsIgnoreCase(config.client.transmission));
+            ColorfulBridge.setPropagation(config.client.lightmap_propagate);
             ColorfulBridge.setRebuildBudget(Math.max(8, config.client.lightmap_rebuilds_per_tick * 4));
             // the lightmap renderer bakes the lights into meshes; the shader renderer leaves meshes to Colorful Lighting's shaders
             ColorfulBridge.setMeshLighting(!ShaderRenderer.active());

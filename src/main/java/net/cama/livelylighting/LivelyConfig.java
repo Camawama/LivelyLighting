@@ -172,6 +172,15 @@ public class LivelyConfig {
         public int shader_max_distance = 64;
         // Whether a spot light also draws a faint beam in the air (off: only the surfaces it lights).
         public boolean spot_beams = false;
+        // Shader renderer: how dynamic light passes through blocks. "voxel" marches each light through a 64-block cube of
+        // the blocks round the camera: a wall stops it (a torch behind a wall lights neither the room beyond nor the ground
+        // through the floor) and stained glass tints it, as Colorful Lighting's filters tint block light; "off" lets light
+        // through everything, as other dynamic lighting mods do. Costs a texture read per block crossed per light per vertex.
+        public String transmission = "voxel";
+        // Lightmap renderer with Colorful Lighting: point lights are propagated by its engine as lamps of their colour, so
+        // their light stops at walls as a block's does and shader packs read it as block light. Off: a straight-line light
+        // through walls, cheaper when many lights move.
+        public boolean lightmap_propagate = true;
     }
 
     public static class Experimental {

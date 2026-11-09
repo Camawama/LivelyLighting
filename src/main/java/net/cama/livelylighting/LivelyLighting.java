@@ -40,6 +40,9 @@ public class LivelyLighting
         // the client module (0.5.0): draws dynamic light where the server leaves it to the client
         if (net.minecraftforge.fml.loading.FMLEnvironment.dist.isClient()) {
             modEventBus.addListener((FMLClientSetupEvent e) -> e.enqueueWork(net.cama.livelylighting.client.dynamic.ClientLights::init));
+            // LambDynamicLights-format item light files in resource packs, read at every resource reload (0.5.1)
+            modEventBus.addListener((net.minecraftforge.client.event.RegisterClientReloadListenersEvent e) ->
+                    e.registerReloadListener(net.cama.livelylighting.client.dynamic.LdlDefinitions.INSTANCE));
         }
     }
 
