@@ -23,6 +23,9 @@ final class ColorfulBridge {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static boolean registered;
     private static MethodHandle point, spot, setMeshLighting, shaderAvailable, setLimits, setBudget, setTransmission, setPropagation;
+    private static MethodHandle fieldEnabled, fieldHolds;
+    /** Whether Colorful Lighting was last told to bake the lights into meshes (then no light has a slab). */
+    private static boolean meshLighting = true;
     private static Boolean sentTransmission, sentPropagation;
     private static int sentLights = -1, sentBudget = -1;
     private static float sentDistance = -1f;
@@ -73,6 +76,13 @@ final class ColorfulBridge {
                 setLimits = lookup.findStatic(shaderLights, "setLimits", MethodType.methodType(void.class, int.class, float.class));
             } catch (ReflectiveOperationException e) {
                 setLimits = null;
+            }
+            try {
+                Class<?> field = Class.forName("net.camacraft.colorfullighting.compat.dynamiclights.DynamicLightField");
+                fieldEnabled = lookup.findStatic(field, "enabled", MethodType.methodType(boolean.class));
+                fieldHolds = lookup.findStatic(field, "holds", MethodType.methodType(boolean.class, long.class));
+            } catch (ReflectiveOperationException e) {
+                fieldEnabled = fieldHolds = null;
             }
             Object provider = Proxy.newProxyInstance(providerType.getClassLoader(), new Class<?>[]{providerType}, (proxy, method, args) -> {
                 if (method.getName().equals("collect") && args != null && args.length == 3) {
@@ -203,10 +213,25 @@ final class ColorfulBridge {
 
     /** Whether Colorful Lighting is to apply the lights to chunk meshes (the lightmap renderer) or leave them to its shaders. */
     static void setMeshLighting(boolean meshes) {
+        meshLighting = meshes;
         if (setMeshLighting == null) return;
         try {
             setMeshLighting.invoke(meshes);
         } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * Whether a light may be shown now without shining through walls: Colorful Lighting holds the slab that says where its
+     * light may go (2.10.0), or nothing here uses slabs (no Colorful Lighting, an older one, the lightmap renderer,
+     * transmission off). A light beyond the slabs never gets one; its caller gives up waiting.
+     */
+    static boolean slabReady(long key) {
+        if (!registered || meshLighting || fieldEnabled == null || fieldHolds == null) return true;
+        try {
+            return !(boolean) fieldEnabled.invoke() || (boolean) fieldHolds.invoke(key);
+        } catch (Throwable t) {
+            return true;
         }
     }
 
@@ -216,9 +241,9 @@ final class ColorfulBridge {
             Vec3 p = light.mover.at(partialTick);
             if (light.isSpot()) {
                 Vec3 d = light.direction.at(partialTick);
-                spot.invoke(sink, light.ownerKey, p.x, p.y, p.z, d.x, d.y, d.z, light.outerDegrees, light.innerDegrees(), light.level, light.rgb, light.range);
+                spot.invoke(sink, light.ownerKey, p.x, p.y, p.z, d.x, d.y, d.z, light.outerDegrees, light.innerDegrees(), light.levelAtFrame(partialTick), light.rgb, light.range);
             } else {
-                point.invoke(sink, light.ownerKey, p.x, p.y, p.z, light.level, light.rgb, light.falloff.ordinal(), light.range);
+                point.invoke(sink, light.ownerKey, p.x, p.y, p.z, light.levelAtFrame(partialTick), light.rgb, light.falloff.ordinal(), light.range);
             }
         }
     }

@@ -21,13 +21,13 @@ public class ModTags {
         public static final TagKey<Item> FLASHLIGHTS = tag("flashlights");
 
         private static TagKey<Item> tag(String name) {
-            return ItemTags.create(new ResourceLocation(LivelyLighting.MODID, name));
+            return ItemTags.create(ResourceLocation.fromNamespaceAndPath(LivelyLighting.MODID, name));
         }
     }
 
     public static class Blocks {
         /** A luminous block in this tag on a ship or contraption is a headlight: a spot light along its facing (0.5.0). */
-        public static final TagKey<Block> HEADLIGHTS = BlockTags.create(new ResourceLocation(LivelyLighting.MODID, "headlights"));
+        public static final TagKey<Block> HEADLIGHTS = BlockTags.create(ResourceLocation.fromNamespaceAndPath(LivelyLighting.MODID, "headlights"));
     }
 
     public static class Entities {
@@ -38,7 +38,7 @@ public class ModTags {
         public static final TagKey<EntityType<?>> LIGHT_LEVEL_3 = tag("light_level/3");
 
         private static TagKey<EntityType<?>> tag(String name) {
-            return TagKey.create(ForgeRegistries.ENTITY_TYPES.getRegistryKey(), new ResourceLocation(LivelyLighting.MODID, name));
+            return TagKey.create(ForgeRegistries.ENTITY_TYPES.getRegistryKey(), ResourceLocation.fromNamespaceAndPath(LivelyLighting.MODID, name));
         }
     }
 }

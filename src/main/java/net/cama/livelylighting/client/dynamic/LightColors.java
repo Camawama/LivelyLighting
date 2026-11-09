@@ -19,7 +19,7 @@ import java.lang.invoke.MethodType;
  */
 final class LightColors {
     private static final Logger LOGGER = LogUtils.getLogger();
-    private static MethodHandle item, entity, block;
+    private static MethodHandle item, entity, block, lamp;
     private static boolean tried;
 
     private LightColors() {}
@@ -37,6 +37,11 @@ final class LightColors {
                 block = lookup.findStatic(dyn, "blockLightColor", MethodType.methodType(int.class, BlockState.class));
             } catch (NoSuchMethodException e) {
                 block = null; // Colorful Lighting before 2.9.0: lamps on ships stay white
+            }
+            try {
+                lamp = lookup.findStatic(dyn, "lampLightColor", MethodType.methodType(int.class, net.minecraft.world.level.Level.class, net.minecraft.core.BlockPos.class));
+            } catch (NoSuchMethodException e) {
+                lamp = null;
             }
         } catch (ReflectiveOperationException | LinkageError e) {
             LOGGER.info("[LivelyLighting] this Colorful Lighting gives dynamic lights no colours ({}); they are white", e.toString());
@@ -60,6 +65,20 @@ final class LightColors {
         if (entity == null || e == null) return -1;
         try {
             return (int) entity.invoke(e, true);
+        } catch (Throwable t) {
+            return -1;
+        }
+    }
+
+    /**
+     * The colour a lamp's light leaves the blocks round it with (a ship's lamp behind the ship's stained glass: the glass's),
+     * from the light Colorful Lighting has stored there; -1 while it has none or can't say.
+     */
+    static int ofLamp(net.minecraft.world.level.Level level, net.minecraft.core.BlockPos pos) {
+        bind();
+        if (lamp == null || level == null) return -1;
+        try {
+            return (int) lamp.invoke(level, pos);
         } catch (Throwable t) {
             return -1;
         }

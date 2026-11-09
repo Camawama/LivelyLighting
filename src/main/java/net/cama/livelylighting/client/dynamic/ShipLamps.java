@@ -24,11 +24,32 @@ import java.util.Map;
  * camera) and over all ships ({@code client.lightmap_max_moving_lamps}), each moving with its ship's render pose. A lamp
  * with a block definition (or in {@code #livelylighting:headlights}) is a spot light along its facing: a headlight. Needs
  * {@code vs_support}; light blocks count as lamps only with {@code light_blocks_are_lamps}.
+ *
+ * <p>Where nothing takes the ship's own blocks into account (the lightmap renderer, or transmission off), a point lamp
+ * shines in the colour its light leaves the ship's blocks with (0.6.4): Colorful Lighting's stored light round the lamp in
+ * the shipyard, so glowstone boxed in red glass lights the ground red, as it does through the shaders' block volume. Asked
+ * again every {@link #HUE_TICKS} ticks, a lamp at a time.
  */
 final class ShipLamps {
     private static final int RESCAN_TICKS = 60;
 
-    private record Lamp(BlockPos pos, BlockState state, int emission) {}
+    private static final int HUE_TICKS = 20;
+
+    private static final class Lamp {
+        final BlockPos pos;
+        final BlockState state;
+        final int emission;
+        /** The colour the lamp's light leaves the ship with, -1 unknown; asked at {@link #hueTick}. */
+        int hue = -1;
+        /** Far enough back that a new lamp is asked at once (not Long.MIN_VALUE: the tick minus it overflows). */
+        long hueTick = -1_000_000L;
+
+        Lamp(BlockPos pos, BlockState state, int emission) {
+            this.pos = pos;
+            this.state = state;
+            this.emission = emission;
+        }
+    }
 
     private record Scan(long tick, List<Lamp> lamps) {}
 
@@ -45,16 +66,26 @@ final class ShipLamps {
             return;
         }
         long now = level.getGameTime();
+        // the shaders' block volume holds the ship's blocks and tints the lamp itself; elsewhere the lamp carries the tint
+        boolean ownHue = !ClientLights.slabsTintLamps();
         List<DynamicLight> found = new ArrayList<>();
         Ships.forEachLoaded(level, ship -> {
             if (!ship.isLoaded()) return;
             Scan scan = scans.get(ship.id());
             if (scan == null || now - scan.tick >= RESCAN_TICKS) {
+                Scan old = scan;
                 scan = new Scan(now, scan(ship, config));
+                if (old != null) keepHues(old.lamps, scan.lamps);
                 scans.put(ship.id(), scan);
             }
             List<Lamp> kept = cap(ship, scan.lamps, camera, config.max_lamps_per_ship);
-            for (Lamp lamp : kept) found.add(toLight(ship, lamp, falloff));
+            for (Lamp lamp : kept) {
+                if (ownHue && now - lamp.hueTick >= HUE_TICKS) {
+                    lamp.hueTick = now + (lamp.pos.hashCode() & 7);
+                    lamp.hue = LightColors.ofLamp(level, lamp.pos);
+                }
+                found.add(toLight(ship, lamp, falloff, ownHue));
+            }
         });
         List<DynamicLight> lamps = found;
         scans.keySet().removeIf(id -> {
@@ -67,6 +98,19 @@ final class ShipLamps {
             lamps = lamps.subList(0, cap);
         }
         out.addAll(lamps);
+    }
+
+    /** A lamp found again by a new scan keeps the hue it was given, and its turn to be asked. */
+    private static void keepHues(List<Lamp> old, List<Lamp> fresh) {
+        if (old.isEmpty() || fresh.isEmpty()) return;
+        Map<BlockPos, Lamp> byPos = new HashMap<>();
+        for (Lamp lamp : old) byPos.put(lamp.pos, lamp);
+        for (Lamp lamp : fresh) {
+            Lamp was = byPos.get(lamp.pos);
+            if (was == null || was.state != lamp.state) continue;
+            lamp.hue = was.hue;
+            lamp.hueTick = was.hueTick;
+        }
     }
 
     private static List<Lamp> scan(ShipRef ship, LivelyConfig config) {
@@ -90,7 +134,7 @@ final class ShipLamps {
         return ranked.subList(0, cap);
     }
 
-    private static DynamicLight toLight(ShipRef ship, Lamp lamp, Falloff falloff) {
+    private static DynamicLight toLight(ShipRef ship, Lamp lamp, Falloff falloff, boolean ownHue) {
         Vec3 centre = Vec3.atCenterOf(lamp.pos);
         DynamicLight.Mover mover = pt -> {
             Vec3 w = ship.toWorld(centre, pt >= 1.0f ? ShipRef.Pose.TICK : ShipRef.Pose.RENDER);
@@ -113,7 +157,7 @@ final class ShipLamps {
         }
         int level = def != null ? def.levelOf(lamp.state) : lamp.emission;
         // a lamp without a colour of its own takes the colour Colorful Lighting gives its block (a sea lantern's blue)
-        int rgb = def != null && def.color() >= 0 ? def.color() : LightColors.ofBlock(lamp.state);
+        int rgb = def != null && def.color() >= 0 ? def.color() : ownHue && lamp.hue >= 0 ? lamp.hue : LightColors.ofBlock(lamp.state);
         return new DynamicLight(key, DynamicLight.Kind.SHIP_LAMP, mover, null, level, rgb, LightShape.POINT, 0f, level, falloff);
     }
 }

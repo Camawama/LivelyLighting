@@ -111,6 +111,15 @@ public final class ClientLights {
         }
     }
 
+    /**
+     * Whether Colorful Lighting's block volume tints a moving structure's lamps itself: the shader renderer with voxel
+     * transmission, whose volume takes a ship's blocks. Elsewhere the lamp carries its ship's tint ({@link ShipLamps}).
+     */
+    static boolean slabsTintLamps() {
+        if (!ShaderRenderer.active()) return false;
+        return "voxel".equalsIgnoreCase(System.getProperty("livelylighting.clientTransmission", LivelyConfig.get().client.transmission));
+    }
+
     /** Whether the shader renderer is the one drawing (Colorful Lighting's shader path, chosen by client.renderer). */
     static final class ShaderRenderer {
         static boolean active() {

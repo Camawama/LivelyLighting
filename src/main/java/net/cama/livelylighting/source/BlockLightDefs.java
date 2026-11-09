@@ -138,7 +138,7 @@ public final class BlockLightDefs {
                 if (id.startsWith("regex:")) {
                     REGEX.add(new Regex(Pattern.compile(id.substring(6)), data));
                 } else {
-                    Block block = ForgeRegistries.BLOCKS.getValue(new ResourceLocation(id));
+                    Block block = ForgeRegistries.BLOCKS.getValue(ResourceLocation.parse(id));
                     if (block != null) BY_BLOCK.put(block, data);
                 }
             } catch (Exception e) {

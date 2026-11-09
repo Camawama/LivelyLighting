@@ -36,6 +36,7 @@ import java.util.Map;
  * other mods' lights. Levels fade in and out as the server module's do ({@code smoothing}, {@code fade_in_rate},
  * {@code trail_decay_rate}, players and other mods' lights, every entity with {@code smoothing_all_entities}); a light's
  * reach follows its faded level (0.6.0: it took the wanted level, so a torch put away vanished at once instead of fading).
+ * Point lights near each other add a merged light over them ({@link ClientClusters}, 0.6.3).
  * A light without a colour of its own takes the colour Colorful Lighting gives its source ({@link LightColors}). Positions
  * are continuous: an entity's light sits at its eye, a lamp at its block centre, and each light knows where it is at any
  * moment of the frame. Run once per client tick on the render thread; the result is an immutable list the renderers read.
@@ -53,6 +54,22 @@ public final class ClientLightEngine {
     private final Map<Long, Fade> fades = new HashMap<>();
     private final ShipLamps shipLamps = new ShipLamps();
     private final ContraptionLamps contraptionLamps = new ContraptionLamps();
+    private final ClientClusters clusters = new ClientClusters();
+
+    /** A light held dark while Colorful Lighting builds the slab that says where its light may go, then let up. */
+    private static final class Hold {
+        int age;
+        /** The share of its level the light shows (1 once let up). */
+        float shown;
+        boolean ready;
+        long lastSeen;
+    }
+
+    private final Map<Long, Hold> holds = new HashMap<>();
+    /** The longest a new light waits for its slab: a light beyond the slabs never gets one. */
+    private static final int HOLD_TICKS = 6;
+    /** The share of its level a held light gains a tick once it is let up. */
+    private static final float REVEAL_STEP = 0.5f;
     /** The API lights at the moment of the frame being drawn, by key (filled once per frame for the renderers). */
     private final Map<Long, net.camacraft.camafy.light.LightSource> apiFrame = new HashMap<>();
     /** The API lights as last given, by key, so one that stops being given fades out where it was. */
@@ -72,7 +89,14 @@ public final class ClientLightEngine {
         apiLast.clear();
         shipLamps.forget();
         contraptionLamps.forget();
+        clusters.forget();
+        holds.clear();
         lights = Collections.emptyList();
+    }
+
+    /** How many merged lights there are now, the ones easing out included (for tests). */
+    public int clusterCount() {
+        return clusters.count();
     }
 
     /** One client tick: gathers, fades and publishes the lights. */
@@ -83,6 +107,8 @@ public final class ClientLightEngine {
         if (!config.enable) {
             fades.clear();
             apiLast.clear();
+            clusters.forget();
+            holds.clear();
             lights = Collections.emptyList();
             return;
         }
@@ -121,11 +147,57 @@ public final class ClientLightEngine {
         shipLamps.collect(level, camera, config, falloff, out);
         contraptionLamps.collect(level, camera, config, falloff, out);
         collectApi(level, config, falloff, out);
+        // lights near each other merge into one larger light (0.6.3)
+        clusters.collect(config, falloff, camera, level, out);
+        // a new light waits dark for the slab that keeps it behind walls (0.6.4)
+        hold(config, out);
         // the ships' blocks for the volume the light is propagated through (Colorful Lighting's worker reads the snapshot)
         ShipBlocks.snapshot(level);
         // fades that were not wanted this tick run out
         fades.entrySet().removeIf(e -> tick - e.getValue().lastSeen > 1200);
         lights = Collections.unmodifiableList(out);
+    }
+
+    /**
+     * New lights wait for their slab (0.6.4, {@code client.hold_new_lights}). Colorful Lighting learns of a light the frame after
+     * it is first given and builds its slab on a worker; until that is uploaded the shaders drew the light with nothing in its
+     * way, so a torch taken out behind a wall lit the room beyond for a tick or two. A new light is now given at a level that
+     * shows nothing, with its own reach (so its slab is the one it keeps), until Colorful Lighting holds its slab or
+     * {@link #HOLD_TICKS} have passed, and then let up over two ticks, drawn between ticks. Where no slabs are used (the
+     * lightmap renderer, transmission off, no Colorful Lighting) nothing waits. The merged lights do the same themselves.
+     */
+    private void hold(LivelyConfig config, List<DynamicLight> out) {
+        if (!config.client.hold_new_lights) {
+            holds.clear();
+            return;
+        }
+        for (int i = 0; i < out.size(); i++) {
+            DynamicLight light = out.get(i);
+            if (light.kind == DynamicLight.Kind.CLUSTER) continue;
+            Hold hold = holds.get(light.ownerKey);
+            if (hold == null) {
+                holds.put(light.ownerKey, hold = new Hold());
+                if (ColorfulBridge.slabReady(light.ownerKey)) {
+                    hold.ready = true;
+                    hold.shown = 1f;
+                }
+            }
+            hold.lastSeen = tick;
+            if (!hold.ready) {
+                if (!ColorfulBridge.slabReady(light.ownerKey) && ++hold.age <= HOLD_TICKS) {
+                    out.set(i, light.withLevel(Math.min(light.level, ClientClusters.HIDDEN), null, 0f));
+                    continue;
+                }
+                hold.ready = true;
+            }
+            if (hold.shown >= 1f) continue;
+            final float was = hold.shown, now = Math.min(1f, was + REVEAL_STEP);
+            hold.shown = now;
+            final DynamicLight full = light;
+            out.set(i, light.withLevel(light.level * now, pt -> full.levelAtFrame(pt) * (pt >= 1.0f ? now : was + (now - was) * Math.max(0f, pt)),
+                    light.glowLevel * now));
+        }
+        holds.values().removeIf(h -> h.lastSeen != tick);
     }
 
     /**

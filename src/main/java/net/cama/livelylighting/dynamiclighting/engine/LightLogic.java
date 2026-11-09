@@ -271,7 +271,14 @@ public class LightLogic {
         int fadeInRate = Math.max(1, config.fade_in_rate);
         int maxSources = config.max_light_sources;
 
+        // Carried lights (entities, other mods' lights), one per block they are placed in. Until 0.6.4 these were merged by
+        // a grid of the merge distance: two holders merged or not by which side of a cell border they stood on, and their
+        // light jumped as one crossed it. Lights near each other now add a merged light by LightClusters' rule below.
         Map<BlockPos, LightCluster> worldClusters = new HashMap<>();
+        // A ship's lamps and fire, one light per cell of the merge distance in the ship's own (shipyard) grid, so the lamps
+        // of a cell stay the same ones however the ship moves (the world's grid regrouped them as it moved).
+        Map<BlockPos, LightCluster> lampClusters = new HashMap<>();
+        double lampGrid = mergeDistance >= 1.0 ? mergeDistance : 1.0;
         // Exact-position sources, keyed by their block position: ultra-smoothing
         // interpolation blocks and shipyard projections. These are pre-validated
         // single-block lights and must never be grid-merged or position-averaged
@@ -457,8 +464,7 @@ public class LightLogic {
                 }
                 if (!seen) continue;
                 sourceCount++;
-                BlockPos gridPos = new BlockPos((int) Math.floor(at.x / mergeDistance), (int) Math.floor(at.y / mergeDistance), (int) Math.floor(at.z / mergeDistance));
-                worldClusters.computeIfAbsent(gridPos, k -> new LightCluster()).add(at.x, at.y, at.z, lvl, false, lvl);
+                worldClusters.computeIfAbsent(BlockPos.containing(at), k -> new LightCluster()).add(at.x, at.y, at.z, lvl, false, lvl);
             }
         }
 
@@ -520,14 +526,14 @@ public class LightLogic {
                     Vec3 worldPos = ship.toWorld(Vec3.atCenterOf(shipPos));
                     if (worldPos == null) continue; // ship gone since the intersect query
 
-                    int gridX = (int) Math.floor(worldPos.x / mergeDistance);
-                    int gridY = (int) Math.floor(worldPos.y / mergeDistance);
-                    int gridZ = (int) Math.floor(worldPos.z / mergeDistance);
+                    int gridX = (int) Math.floor(shipPos.getX() / lampGrid);
+                    int gridY = (int) Math.floor(shipPos.getY() / lampGrid);
+                    int gridZ = (int) Math.floor(shipPos.getZ() / lampGrid);
                     BlockPos gridPos = new BlockPos(gridX, gridY, gridZ);
 
                     // Carry equals the emission so an already-lit lamp never
                     // re-runs the ignition fade as the ship moves.
-                    LightCluster lampCluster = worldClusters.computeIfAbsent(gridPos, k -> new LightCluster());
+                    LightCluster lampCluster = lampClusters.computeIfAbsent(gridPos, k -> new LightCluster());
                     lampCluster.add(worldPos.x, worldPos.y, worldPos.z, emission, false, emission);
                     lampCluster.lamp().source(LightSources.SHIP_LAMP, shipPos.asLong());
 
@@ -537,8 +543,8 @@ public class LightLogic {
 
                 // a ship on fire (Camafy's ship fire) is a light like a burning entity (ship_fire_lights)
                 if (config.ship_fire_lights && sourceCount < maxSources) {
-                    sourceCount += addShipFireLights(level, ship, shipId, mergeDistance, maxSources - sourceCount,
-                            worldClusters, worldUltraClusters, shipWorldEmitters);
+                    sourceCount += addShipFireLights(level, ship, shipId, lampGrid, maxSources - sourceCount,
+                            lampClusters, worldUltraClusters, shipWorldEmitters);
                 }
             }
 
@@ -624,8 +630,15 @@ public class LightLogic {
             }
         }
 
-        // 2. Calculate Desired Light Field
-        LightPropagator.calculateLightField(level, worldClusters, worldDesiredLights, worldDesiredPlayerLights, worldDesiredCarry, worldDesiredSources, smoothing, clusterGrowing, maxRadius);
+        // 2. Calculate Desired Light Field: every light on its own, and the merged lights of those near each other
+        LightPropagator.calculateLightField(level, worldClusters, worldDesiredLights, worldDesiredPlayerLights, worldDesiredCarry, worldDesiredSources, smoothing, false, maxRadius);
+        LightPropagator.calculateLightField(level, lampClusters, worldDesiredLights, worldDesiredPlayerLights, worldDesiredCarry, worldDesiredSources, smoothing, false, maxRadius);
+        if (clusterGrowing && mergeDistance > 0) {
+            Map<BlockPos, LightCluster> merged = mergedClusters(level, worldClusters, lampClusters, mergeDistance, maxRadius);
+            if (!merged.isEmpty()) {
+                LightPropagator.calculateLightField(level, merged, worldDesiredLights, worldDesiredPlayerLights, worldDesiredCarry, worldDesiredSources, smoothing, true, maxRadius);
+            }
+        }
         LightPropagator.calculateLightField(level, worldUltraClusters, worldDesiredLights, worldDesiredPlayerLights, worldDesiredCarry, worldDesiredSources, smoothing, clusterGrowing, maxRadius);
 
         // 3. Apply Changes. Ship-projected lights live in the world like any other
@@ -640,6 +653,72 @@ public class LightLogic {
         // 4. Tell clients what each placed light stands for, so Colorful Lighting gives it its source's colour
         // (light_source_colors). A fading light keeps what they were told while it was lit.
         LightSourceSync.afterRun(level, config, gameState, worldCurrentLights, worldDesiredSources);
+    }
+
+    /**
+     * The merged lights of the lights near each other (0.6.4, {@code experimental.cluster_growing}): the rule the client
+     * draws by and the gameplay light counts by ({@link net.cama.livelylighting.source.LightClusters}), over the carried
+     * lights and, beside those, a ship's lamps. Two lights merge with a clear line between them; the merged light is their
+     * light added up by how close they are, so it grows as they come together and is gone where they part. It fades in with
+     * its newest member, and tells clients every member's source for its colour.
+     */
+    private static Map<BlockPos, LightCluster> mergedClusters(ServerLevel level, Map<BlockPos, LightCluster> carried, Map<BlockPos, LightCluster> lamps,
+                                                             double mergeDistance, int maxRadius) {
+        int total = carried.size() + lamps.size();
+        if (carried.isEmpty() || total < 2) return Map.of();
+        int n = Math.min(net.cama.livelylighting.source.LightClusters.MAX_LIGHTS, total);
+        LightCluster[] members = new LightCluster[n];
+        boolean[] lamp = new boolean[n];
+        int k = 0;
+        for (LightCluster c : carried.values()) {
+            if (k >= n) break;
+            if (c.count > 0 && c.maxLightLevel > 0) members[k++] = c;
+        }
+        int carriedCount = k;
+        for (LightCluster c : lamps.values()) {
+            if (k >= n) break;
+            if (c.count > 0 && c.maxLightLevel > 0) {
+                lamp[k] = true;
+                members[k++] = c;
+            }
+        }
+        final int count = k;
+        if (carriedCount == 0 || count < 2) return Map.of();
+        double[] x = new double[count], y = new double[count], z = new double[count];
+        float[] levels = new float[count];
+        Vec3[] at = new Vec3[count];
+        for (int i = 0; i < count; i++) {
+            x[i] = members[i].midX();
+            y[i] = members[i].midY();
+            z[i] = members[i].midZ();
+            levels[i] = members[i].maxLightLevel;
+            at[i] = new Vec3(x[i], y[i], z[i]);
+        }
+        // each pair's line is walked once a tick at most
+        byte[] seen = new byte[count * count];
+        net.cama.livelylighting.source.LightClusters.Sight sight = (i, j) -> {
+            int key = i * count + j;
+            if (seen[key] == 0) seen[key] = (byte) (net.cama.livelylighting.source.LightSight.clear(level, at[i], at[j], false) ? 1 : 2);
+            return seen[key] == 1;
+        };
+        Map<BlockPos, LightCluster> out = new HashMap<>();
+        int index = 0;
+        for (net.cama.livelylighting.source.LightClusters.Merged m : net.cama.livelylighting.source.LightClusters.merge(x, y, z, levels, lamp, count,
+                mergeDistance, net.cama.livelylighting.source.LightClusters.cap(maxRadius), sight, false)) {
+            boolean player = false;
+            int carry = Integer.MAX_VALUE;
+            for (int i : m.members) {
+                player |= members[i].isPlayer;
+                carry = Math.min(carry, members[i].carryLevel);
+            }
+            int lvl = Math.max(1, Math.min(15, (int) Math.floor(m.level)));
+            LightCluster cluster = new LightCluster();
+            cluster.add(m.x, m.y, m.z, lvl, player, Math.min(lvl, carry));
+            cluster.merged(m.level);
+            for (int i : m.members) cluster.sources(members[i].sources());
+            out.put(new BlockPos(index++, 0, 0), cluster);
+        }
+        return out;
     }
 
     private static boolean processEntity(Entity entity, ServerLevel level, Map<BlockPos, LightCluster> worldClusters, Map<BlockPos, LightCluster> worldUltraClusters, Set<Integer> processedIds, LivelyConfig config, boolean useVs, LightGameState gameState) {
@@ -1072,13 +1151,7 @@ public class LightLogic {
                 }
 
                 if (lightLevel > 0) {
-                    double mergeDistance = config.experimental.cluster_merge_distance;
-                    int gridX = (int) Math.floor(lightX / mergeDistance);
-                    int gridY = (int) Math.floor(lightY / mergeDistance);
-                    int gridZ = (int) Math.floor(lightZ / mergeDistance);
-                    BlockPos gridPos = new BlockPos(gridX, gridY, gridZ);
-
-                    LightCluster cluster = worldClusters.computeIfAbsent(gridPos, k -> new LightCluster());
+                    LightCluster cluster = worldClusters.computeIfAbsent(BlockPos.containing(lightX, lightY, lightZ), k -> new LightCluster());
                     cluster.add(lightX, lightY, lightZ, lightLevel, entity instanceof Player, carryLevel);
                     cluster.source(LightSources.ENTITY, source);
                 }
@@ -1227,7 +1300,7 @@ public class LightLogic {
      * swept when its chunk next loads and purged when the server stops. Returns the light sources added.
      */
     private static int addShipFireLights(ServerLevel level, ShipRef ship, long shipId, double mergeDistance, int room,
-                                         Map<BlockPos, LightCluster> worldClusters, Map<BlockPos, LightCluster> exactClusters,
+                                         Map<BlockPos, LightCluster> lampClusters, Map<BlockPos, LightCluster> exactClusters,
                                          List<ShipWorldEmitter> shipWorldEmitters) {
         Map<Long, Long> seen = FIRE_SEEN.computeIfAbsent(level.dimension(), k -> new HashMap<>());
         if (!net.camacraft.camafy.compat.vs.ShipFire.burning(level, shipId)) {
@@ -1241,10 +1314,10 @@ public class LightLogic {
             if (added >= room) break;
             Vec3 worldPos = ship.toWorld(shipyardPoint);
             if (worldPos == null) break; // ship gone
-            BlockPos gridPos = new BlockPos((int) Math.floor(worldPos.x / mergeDistance),
-                    (int) Math.floor(worldPos.y / mergeDistance), (int) Math.floor(worldPos.z / mergeDistance));
+            BlockPos gridPos = new BlockPos((int) Math.floor(shipyardPoint.x / mergeDistance),
+                    (int) Math.floor(shipyardPoint.y / mergeDistance), (int) Math.floor(shipyardPoint.z / mergeDistance));
             // carry equals the level, as for a ship's lamp: a fire moving with its ship never re-runs the ignition fade
-            LightCluster fireCluster = worldClusters.computeIfAbsent(gridPos, k -> new LightCluster());
+            LightCluster fireCluster = lampClusters.computeIfAbsent(gridPos, k -> new LightCluster());
             fireCluster.add(worldPos.x, worldPos.y, worldPos.z, lightLevel, false, lightLevel);
             fireCluster.source(LightSources.FIRE, 0L);
             shipWorldEmitters.add(new ShipWorldEmitter(shipId, worldPos.x, worldPos.y, worldPos.z, lightLevel, LightSources.FIRE, 0L));

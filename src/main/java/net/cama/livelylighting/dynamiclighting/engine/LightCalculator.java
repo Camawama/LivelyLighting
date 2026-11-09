@@ -149,7 +149,7 @@ public class LightCalculator {
                     for (String pId : pIds) {
                         if (particles.size() >= 3) break;
                         if (pId.trim().equals("null")) continue;
-                        ParticleType<?> p = ForgeRegistries.PARTICLE_TYPES.getValue(new ResourceLocation(pId.trim()));
+                        ParticleType<?> p = ForgeRegistries.PARTICLE_TYPES.getValue(ResourceLocation.parse(pId.trim()));
                         if (p != null) particles.add(p);
                     }
                 }
@@ -163,7 +163,7 @@ public class LightCalculator {
                     String patternStr = id.substring(6);
                     regexItems.add(new RegexLightData(Pattern.compile(patternStr), data));
                 } else {
-                    ResourceLocation key = new ResourceLocation(id);
+                    ResourceLocation key = ResourceLocation.parse(id);
                     if (json.has("nbt") && json.get("nbt").isJsonObject()) {
                         // applies only to stacks whose tag holds these values (a flashlight a script switches on): matched when the stack is looked up
                         net.minecraft.nbt.CompoundTag required = net.minecraft.nbt.TagParser.parseTag(json.get("nbt").toString());
@@ -204,7 +204,7 @@ public class LightCalculator {
                     String patternStr = id.substring(6);
                     regexEntities.add(new RegexEntityData(Pattern.compile(patternStr), data));
                 } else {
-                    EntityType<?> type = ForgeRegistries.ENTITY_TYPES.getValue(new ResourceLocation(id));
+                    EntityType<?> type = ForgeRegistries.ENTITY_TYPES.getValue(ResourceLocation.parse(id));
                     if (type != null) {
                         entityCache.put(type, data);
                     }
@@ -264,7 +264,7 @@ public class LightCalculator {
                 }
 
                 try {
-                    ResourceLocation sLoc = new ResourceLocation(soundId);
+                    ResourceLocation sLoc = ResourceLocation.parse(soundId);
                     SoundEvent s = ForgeRegistries.SOUND_EVENTS.getValue(sLoc);
                     if (s != null) {
                         sounds.add(new SoundData(s, vol, pitch));

@@ -146,9 +146,12 @@ public class LivelyConfig {
     public boolean curios_lighting = true;
     // Dynamic light counts as the world's own light on the server (0.6.0): mob spawning, snow and ice melting, crops
     // and anything else that asks how bright a place is, as the light blocks gave it. A point light of each source's
-    // level losing a level per block, from carried, worn and burning lights and other mods' lights; walls don't stop
-    // it. Idle in server_blocks mode, where the blocks are real light.
+    // level losing a level per block, from carried, worn and burning lights and other mods' lights. Idle in
+    // server_blocks mode, where the blocks are real light.
     public boolean gameplay_light = true;
+    // That light stops at walls and goes round corners as a placed lamp's does, and another mod's spot light counts
+    // inside its cone only (0.6.4). Off: a straight count through everything, every light a point light, as 0.6.0.
+    public boolean gameplay_light_occlusion = true;
 
     public Experimental experimental = new Experimental();
     // The client module (0.5.0): how a client that draws its own light draws it. Read by the client only.
@@ -197,6 +200,24 @@ public class LivelyConfig {
         // which point away from it) is drawn at least that bright, and whoever rides it with it, with nothing round it lit. Off:
         // carriers are lit only by what reaches them.
         public boolean lit_carriers = true;
+        // With experimental.cluster_growing: lights near each other merge on the client as the server's light blocks do
+        // (0.6.3): point lights of entities, dropped items and other mods closer than experimental.cluster_merge_distance
+        // to one another, with nothing solid between them, add one larger light in their middle. It is their light added
+        // up by how close they are (0.6.4): two torches side by side give a light three levels brighter than one, and the
+        // nearer the merge distance they stand the less it adds, down to nothing where they part. Up to 15 plus
+        // experimental.max_influence_radius (full light out to the blocks above 15 with Colorful Lighting 2.10.1).
+        // Off: every light is drawn on its own, and the merged lights there are ease out.
+        public boolean cluster_merging = true;
+        // Lamps on ships and contraptions (a burning ship's fire among them) join a merged light that has a carried light
+        // in it, counting as far as the carried lights do (0.6.4). Lamps alone never merge. Off: lamps stay out.
+        public boolean cluster_lamps = true;
+        // Merged lights drawn at once, nearest the camera first (0.6.4; 6 before, 16 at most: Colorful Lighting 2.10.2
+        // keeps sixteen slabs for lights that reach beyond 15 blocks). A nearer group takes the farthest one's place,
+        // which eases out first.
+        public int max_merged_lights = 12;
+        // Shader renderer: a new light stays dark until Colorful Lighting has worked out where its light may go, at most
+        // six ticks, and is then let up over two (0.6.4). Off: it shows at once and shines through walls for a tick or two.
+        public boolean hold_new_lights = true;
         // Shader renderer: how dynamic light passes through blocks. "voxel" (Colorful Lighting 2.9.0) propagates each light
         // through a 96-block cube of the blocks round the camera the way a placed lamp's light spreads: a level lost per
         // block along the path, stopped by walls, tinted by stained glass, round corners, with ships' blocks included; the

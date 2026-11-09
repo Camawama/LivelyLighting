@@ -19,15 +19,24 @@ public final class DynamicLight {
     }
 
     /** What the light is attached to; the owner key tells the fades and the renderers which light is which across ticks. */
-    public enum Kind { ENTITY, ITEM_ENTITY, SHIP_LAMP, CONTRAPTION_LAMP, SHIP_FIRE, FORCED, API }
+    public enum Kind { ENTITY, ITEM_ENTITY, SHIP_LAMP, CONTRAPTION_LAMP, SHIP_FIRE, FORCED, API, CLUSTER }
+
+    /** A light's level at a moment of the frame, for one that changes smoothly between ticks (a merged light easing in). */
+    @FunctionalInterface
+    public interface FrameLevel {
+        float at(float partialTick);
+    }
 
     public final long ownerKey;
     public final Kind kind;
     public final Mover mover;
     @Nullable
     public final Mover direction;
-    /** The level this tick, after fades; may be fractional while fading. */
+    /** The level this tick, after fades; may be fractional while fading, and above 15 for a merged light (0.6.3). */
     public final float level;
+    /** The level between ticks, or null for a light that holds its tick's level through the frame. */
+    @Nullable
+    public final FrameLevel frameLevel;
     /** {@code 0xRRGGBB}, or -1 for the renderer's default (Colorful Lighting's colour for the source, else white). */
     public final int rgb;
     public final LightShape shape;
@@ -48,6 +57,11 @@ public final class DynamicLight {
 
     public DynamicLight(long ownerKey, Kind kind, Mover mover, @Nullable Mover direction, float level, int rgb, LightShape shape,
                         float outerDegrees, float range, Falloff falloff, int glowEntity, float glowLevel) {
+        this(ownerKey, kind, mover, direction, level, rgb, shape, outerDegrees, range, falloff, glowEntity, glowLevel, null);
+    }
+
+    public DynamicLight(long ownerKey, Kind kind, Mover mover, @Nullable Mover direction, float level, int rgb, LightShape shape,
+                        float outerDegrees, float range, Falloff falloff, int glowEntity, float glowLevel, @Nullable FrameLevel frameLevel) {
         this.ownerKey = ownerKey;
         this.kind = kind;
         this.mover = mover;
@@ -61,6 +75,18 @@ public final class DynamicLight {
         this.pos = mover.at(1.0f);
         this.glowEntity = glowEntity;
         this.glowLevel = glowLevel;
+        this.frameLevel = frameLevel;
+    }
+
+    /** This light at another level (its level between ticks with it, and its carrier's glow), everything else kept. */
+    public DynamicLight withLevel(float level, @Nullable FrameLevel frameLevel, float glowLevel) {
+        return new DynamicLight(ownerKey, kind, mover, direction, level, rgb, shape, outerDegrees, range, falloff,
+                glowLevel > 0f ? glowEntity : -1, glowLevel, frameLevel);
+    }
+
+    /** The level at a moment of the frame (1 = the tick's own). */
+    public float levelAtFrame(float partialTick) {
+        return frameLevel == null || partialTick >= 1.0f ? level : frameLevel.at(partialTick);
     }
 
     public boolean isSpot() {

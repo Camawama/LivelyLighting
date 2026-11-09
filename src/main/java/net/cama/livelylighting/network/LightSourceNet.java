@@ -51,7 +51,7 @@ public final class LightSourceNet {
     public static void register() {
         // "3" (2026-11-09): the Mode message; "2" (2026-10-17): each source's kind carries its level. An older client
         // doesn't have the channel and keeps Colorful Lighting's own guess; it is lit by the server's blocks as always.
-        net = CamafyChannel.createOptional(new ResourceLocation(LivelyLighting.MODID, "light_sources"), "3");
+        net = CamafyChannel.createOptional(ResourceLocation.fromNamespaceAndPath(LivelyLighting.MODID, "light_sources"), "3");
         net.clientbound(Lights.class, Lights::encode, Lights::decode, Lights::handle);
         net.clientbound(Mode.class, Mode::encode, Mode::decode, Mode::handle);
     }

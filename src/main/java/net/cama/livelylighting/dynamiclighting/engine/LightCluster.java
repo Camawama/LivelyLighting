@@ -48,6 +48,35 @@ public class LightCluster {
         return sources;
     }
 
+    /** Adds another cluster's sources: a merged light keeps the colour of every light in it. */
+    public LightCluster sources(long[] more) {
+        sources = LightSources.union(sources, more);
+        return this;
+    }
+
+    // The strength of a merged light (LightClusters, 0.6.4), which is worked out from its members rather than from this
+    // cluster's own span; below 0 for every other cluster.
+    public float mergedStrength = -1f;
+
+    /** Makes this the cluster of a merged light of this strength. */
+    public LightCluster merged(float strength) {
+        mergedStrength = strength;
+        return this;
+    }
+
+    /** Where the cluster is before {@link #normalize}: the middle of its members. */
+    public double midX() {
+        return count > 0 ? x / count : x;
+    }
+
+    public double midY() {
+        return count > 0 ? y / count : y;
+    }
+
+    public double midZ() {
+        return count > 0 ? z / count : z;
+    }
+
     public void add(double ex, double ey, double ez, int light, boolean player, int carry) {
         lastLevel = light;
         x += ex;
@@ -96,7 +125,7 @@ public class LightCluster {
             double dz = maxZ - minZ;
             double distance = Math.sqrt(dx*dx + dy*dy + dz*dz);
 
-            strength = (float) (maxLightLevel + distance);
+            strength = mergedStrength >= 0f ? mergedStrength : (float) (maxLightLevel + distance);
         }
     }
 }

@@ -1,5 +1,65 @@
 # Changelog
 
+## 0.6.4 — Unreleased
+
+### Changed
+
+- **A merged light is its members' light added up by how close they are.** It was as strong as the brightest light plus the
+  group's span, so it was at its brightest just before the group parted and dimmed as the lights came together. Now two torches
+  side by side give a light three levels brighter than one (level 17 from two of 14), every doubling adds three, and from half
+  `experimental.cluster_merge_distance` outward a light counts less, down to nothing at the merge distance: the merged light
+  grows as lights close in and has faded to nothing where they part. The client's drawn lights, the server's light blocks and
+  the gameplay light all use this one rule.
+- **Lights merge only with a clear line between them.** Two torches on either side of a wall stay two lights. The line is
+  looked at again every five ticks and when a light changes its block.
+- **A long row or ring of lights no longer makes one light far from its members.** A group is cut while one of its lights is
+  farther than the merge distance from the group's middle, so each merged light lies among the lights it stands for.
+- **The server's light blocks merge by distance, not by a grid.** Carried lights were grouped by cells of the merge distance,
+  so two holders merged or not by which side of a cell border they stood on and the light jumped as one crossed it. Every
+  carried light now keeps its own light and the merged light is added over the group. A ship's lamps are grouped in the
+  ship's own grid, so the same lamps stay together however the ship moves.
+- **Up to sixteen merged lights on the client** (`client.max_merged_lights`, 12; six before). A nearer group takes the place
+  of the farthest merged light, which eases out first. Needs Colorful Lighting 2.10.2 for walls to stop more than four of them.
+- **Switching `client.cluster_merging` or `experimental.cluster_growing` off in a running game eases the merged lights out**
+  over about three quarters of a second, where they went out in one frame.
+- **Gameplay light stops at walls** (`gameplay_light_occlusion`, on): the server counted every light straight through
+  everything, so a torch carried along a corridor kept mobs from spawning in the cave behind its wall. Each light now spreads
+  the way a placed lamp's does, and a spot light counts inside its cone only, where a straight line from it is clear.
+
+### Added
+
+- **Lamps join merged lights** (`client.cluster_lamps`, on): lamps on ships and contraptions and a burning ship's fire join a
+  group that has a carried light in it. Lamps alone never merge. Spot lights still never merge.
+- **A new light waits for its walls** (`client.hold_new_lights`, on; shader renderer): a light taken out behind a wall lit the
+  room beyond for a tick or two, until Colorful Lighting had worked out where its light may go. A new light now stays dark
+  until then, six ticks at most, and is let up over two.
+
+### Fixed
+
+- **Lightmap renderer: a ship's lamp is tinted by the ship's stained glass.** The lamp's light now carries the tint of the
+  ship's own blocks between it and the open side, as the shader renderer's block volume already did. A contraption's lamps
+  are not tinted by the contraption's blocks on this renderer.
+- A spot light's level is drawn between ticks like a point light's.
+- The build no longer uses the `ResourceLocation` constructors Forge marks for removal.
+
+## 0.6.3 — Unreleased
+
+### Added
+
+- **Lights near each other merge on the client** (`client.cluster_merging`, on; needs `experimental.cluster_growing`, the switch the
+  server's light blocks merge by): point lights of entities, dropped items and other mods closer than
+  `experimental.cluster_merge_distance` to one another add one larger light over their middle, as strong as the brightest plus the
+  group's span, up to 15 plus `experimental.max_influence_radius` (24 at most). With Colorful Lighting 2.10.1 a strength over 15 is a
+  core of full light and a reach that much longer; an older one draws a light of 15. The merged light eases in and out as lights
+  join and part, follows its group every frame, takes the group's blended colour and stays dark until Colorful Lighting knows where
+  its light may go, so it never shows through a wall first. Six merged lights at most, the nearest first. Spot lights, the lamps of
+  ships and contraptions and a burning ship's lights stay on their own.
+
+### Changed
+
+- With `gameplay_light` and `experimental.cluster_growing` the server counts lights near each other as the merged light the client
+  draws over them.
+
 ## 0.6.2 — Unreleased
 
 ### Added
