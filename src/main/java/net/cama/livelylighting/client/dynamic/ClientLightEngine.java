@@ -21,6 +21,7 @@ import net.minecraft.world.entity.monster.EnderMan;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -31,11 +32,13 @@ import java.util.Map;
 /**
  * The client's light sources this tick: every entity the client knows that gives light by the shared rules
  * ({@link LightCalculator}: hands, armour, curios, carried block, burning, glowing, creepers, TNT, definitions, tags), the
- * forced levels and switched-off entities the server told us, and the lamps of ships ({@link ShipLamps}). Levels fade in
- * and out as the server module's do ({@code smoothing}, {@code fade_in_rate}, {@code trail_decay_rate}, players only unless
- * {@code smoothing_all_entities}). Positions are continuous: an entity's light sits at its eye, a lamp at its block centre,
- * and each light knows where it is at any moment of the frame. Run once per client tick on the render thread; the result is
- * an immutable list the renderers read.
+ * forced levels and switched-off entities the server told us, the lamps of ships ({@link ShipLamps}) and contraptions, and
+ * other mods' lights. Levels fade in and out as the server module's do ({@code smoothing}, {@code fade_in_rate},
+ * {@code trail_decay_rate}, players and other mods' lights, every entity with {@code smoothing_all_entities}); a light's
+ * reach follows its faded level (0.6.0: it took the wanted level, so a torch put away vanished at once instead of fading).
+ * A light without a colour of its own takes the colour Colorful Lighting gives its source ({@link LightColors}). Positions
+ * are continuous: an entity's light sits at its eye, a lamp at its block centre, and each light knows where it is at any
+ * moment of the frame. Run once per client tick on the render thread; the result is an immutable list the renderers read.
  */
 public final class ClientLightEngine {
     private static final int MAX_SLOTS = 8;
@@ -52,6 +55,8 @@ public final class ClientLightEngine {
     private final ContraptionLamps contraptionLamps = new ContraptionLamps();
     /** The API lights at the moment of the frame being drawn, by key (filled once per frame for the renderers). */
     private final Map<Long, net.camacraft.camafy.light.LightSource> apiFrame = new HashMap<>();
+    /** The API lights as last given, by key, so one that stops being given fades out where it was. */
+    private final Map<Long, net.camacraft.camafy.light.LightSource> apiLast = new HashMap<>();
     private float apiFramePartialTick = Float.NaN;
     private long apiFrameTick = -1;
     private static final long API_KEY_BIT = 0x4000000000000000L;
@@ -64,6 +69,7 @@ public final class ClientLightEngine {
 
     public void forget() {
         fades.clear();
+        apiLast.clear();
         shipLamps.forget();
         contraptionLamps.forget();
         lights = Collections.emptyList();
@@ -76,6 +82,7 @@ public final class ClientLightEngine {
         List<DynamicLight> out = new ArrayList<>();
         if (!config.enable) {
             fades.clear();
+            apiLast.clear();
             lights = Collections.emptyList();
             return;
         }
@@ -102,33 +109,58 @@ public final class ClientLightEngine {
         shipLamps.collect(level, camera, config, falloff, out);
         contraptionLamps.collect(level, camera, config, falloff, out);
         collectApi(level, config, falloff, out);
+        // the ships' blocks for the volume the light is propagated through (Colorful Lighting's worker reads the snapshot)
+        ShipBlocks.snapshot(level);
         // fades that were not wanted this tick run out
         fades.entrySet().removeIf(e -> tick - e.getValue().lastSeen > 1200);
         lights = Collections.unmodifiableList(out);
     }
 
-    /** Other mods' lights through Camafy's DynamicLights (kart headlights, an NPC's torch), faded like the mod's own. */
+    /**
+     * Other mods' lights through Camafy's DynamicLights (kart headlights, an NPC's torch), faded like the mod's own: a light
+     * given this tick fades in to its level; one no longer given fades out where it was last seen.
+     */
     private void collectApi(ClientLevel level, LivelyConfig config, Falloff falloff, List<DynamicLight> out) {
-        if (!net.camacraft.camafy.light.DynamicLights.hasProviders()) return;
+        if (!net.camacraft.camafy.light.DynamicLights.hasProviders() && apiLast.isEmpty()) return;
         List<net.camacraft.camafy.light.LightSource> sources = new ArrayList<>();
         net.camacraft.camafy.light.DynamicLights.collect(level, 1.0f, sources::add);
-        for (net.camacraft.camafy.light.LightSource src : sources) {
-            long key = src.key() ^ API_KEY_BIT;
-            float lvl = fadeLevel(key, src.level(), config.smoothing && config.smoothing_all_entities, config);
-            if (lvl <= 0) continue;
-            final Vec3 tickPos = src.pos();
-            final Vec3 tickDir = src.direction();
-            DynamicLight.Mover mover = pt -> {
-                net.camacraft.camafy.light.LightSource now = apiAt(level, pt, src.key());
-                return now == null ? tickPos : now.pos();
-            };
-            DynamicLight.Mover dir = !src.isSpot() ? null : pt -> {
-                net.camacraft.camafy.light.LightSource now = apiAt(level, pt, src.key());
-                return now == null || now.direction() == null ? tickDir : now.direction();
-            };
-            out.add(new DynamicLight(key, DynamicLight.Kind.API, mover, dir, lvl, src.rgb(), src.isSpot() ? LightShape.SPOT : LightShape.POINT,
-                    src.isSpot() ? src.outerDegrees() : 0f, Math.max(1f, src.reach()), falloff));
+        Map<Long, net.camacraft.camafy.light.LightSource> now = new HashMap<>();
+        for (net.camacraft.camafy.light.LightSource src : sources) now.put(src.key(), src);
+        // the ones that went away this tick: faded out at their last position
+        for (Map.Entry<Long, net.camacraft.camafy.light.LightSource> e : apiLast.entrySet()) {
+            if (now.containsKey(e.getKey())) continue;
+            net.camacraft.camafy.light.LightSource last = e.getValue();
+            float lvl = fadeLevel(last.key() ^ API_KEY_BIT, 0f, config.smoothing, config);
+            if (lvl > 0) {
+                now.put(last.key(), last);
+                addApi(level, last, lvl, falloff, out, false);
+            }
         }
+        for (net.camacraft.camafy.light.LightSource src : sources) {
+            float lvl = fadeLevel(src.key() ^ API_KEY_BIT, src.level(), config.smoothing, config);
+            if (lvl <= 0) continue;
+            addApi(level, src, lvl, falloff, out, true);
+        }
+        apiLast.clear();
+        apiLast.putAll(now);
+    }
+
+    private void addApi(ClientLevel level, net.camacraft.camafy.light.LightSource src, float lvl, Falloff falloff, List<DynamicLight> out, boolean live) {
+        long key = src.key() ^ API_KEY_BIT;
+        final Vec3 tickPos = src.pos();
+        final Vec3 tickDir = src.direction();
+        DynamicLight.Mover mover = !live ? pt -> tickPos : pt -> {
+            net.camacraft.camafy.light.LightSource at = apiAt(level, pt, src.key());
+            return at == null ? tickPos : at.pos();
+        };
+        DynamicLight.Mover dir = !src.isSpot() ? null : !live ? pt -> tickDir : pt -> {
+            net.camacraft.camafy.light.LightSource at = apiAt(level, pt, src.key());
+            return at == null || at.direction() == null ? tickDir : at.direction();
+        };
+        // the reach follows the faded level for a point; a spot keeps its range and dims
+        float range = src.range() > 0f ? src.range() : src.isSpot() ? 32f : lvl;
+        out.add(new DynamicLight(key, DynamicLight.Kind.API, mover, dir, lvl, src.rgb(), src.isSpot() ? LightShape.SPOT : LightShape.POINT,
+                src.isSpot() ? src.outerDegrees() : 0f, Math.max(1f, range), falloff));
     }
 
     /** The API lights at a moment of the frame, collected once per frame (1 = the tick's own positions). */
@@ -194,37 +226,45 @@ public final class ClientLightEngine {
         boolean any = false;
         Integer forced = ClientLightMode.forcedLevel(entity.getUUID());
         if (forced != null) {
-            return add(entity, 9, LightCalculator.EMPTY_LIGHT_DATA.withLevel(forced), config, falloff, out, DynamicLight.Kind.FORCED);
+            return add(entity, 9, LightCalculator.EMPTY_LIGHT_DATA.withLevel(forced), null, config, falloff, out, DynamicLight.Kind.FORCED);
         }
         if (config.experimental.cluster_growing && entity instanceof LivingEntity living) {
-            any |= add(entity, 1, LightCalculator.getItemLightLevel(living.getMainHandItem(), entity, level, config), config, falloff, out, DynamicLight.Kind.ENTITY);
-            any |= add(entity, 2, LightCalculator.getItemLightLevel(living.getOffhandItem(), entity, level, config), config, falloff, out, DynamicLight.Kind.ENTITY);
+            any |= add(entity, 1, LightCalculator.getItemLightLevel(living.getMainHandItem(), entity, level, config), living.getMainHandItem(), config, falloff, out, DynamicLight.Kind.ENTITY);
+            any |= add(entity, 2, LightCalculator.getItemLightLevel(living.getOffhandItem(), entity, level, config), living.getOffhandItem(), config, falloff, out, DynamicLight.Kind.ENTITY);
             int slot = 3;
             for (EquipmentSlot s : EquipmentSlot.values()) {
                 if (s.getType() == EquipmentSlot.Type.ARMOR) {
-                    any |= add(entity, slot++, LightCalculator.getItemLightLevel(living.getItemBySlot(s), entity, level, config), config, falloff, out, DynamicLight.Kind.ENTITY);
+                    any |= add(entity, slot++, LightCalculator.getItemLightLevel(living.getItemBySlot(s), entity, level, config), living.getItemBySlot(s), config, falloff, out, DynamicLight.Kind.ENTITY);
                 }
             }
             if (config.curios_lighting && CuriosLights.loaded()) {
                 LightData curios = LightCalculator.EMPTY_LIGHT_DATA;
+                ItemStack brightest = null;
                 for (ItemStack worn : CuriosLights.worn(living)) {
                     LightData one = LightCalculator.getItemLightLevel(worn, entity, level, config);
-                    if (one.level > curios.level) curios = one;
+                    if (one.level > curios.level) {
+                        curios = one;
+                        brightest = worn;
+                    }
                 }
-                any |= add(entity, 7, curios, config, falloff, out, DynamicLight.Kind.ENTITY);
+                any |= add(entity, 7, curios, brightest, config, falloff, out, DynamicLight.Kind.ENTITY);
             }
             if (entity instanceof EnderMan enderman && enderman.getCarriedBlock() != null) {
-                any |= add(entity, 8, LightCalculator.getItemLightLevel(new ItemStack(enderman.getCarriedBlock().getBlock()), entity, level, config), config, falloff, out, DynamicLight.Kind.ENTITY);
+                ItemStack carried = new ItemStack(enderman.getCarriedBlock().getBlock());
+                any |= add(entity, 8, LightCalculator.getItemLightLevel(carried, entity, level, config), carried, config, falloff, out, DynamicLight.Kind.ENTITY);
             }
-            any |= add(entity, 0, LightCalculator.getEntityLightLevel(entity, level, config), config, falloff, out, DynamicLight.Kind.ENTITY);
+            any |= add(entity, 0, LightCalculator.getEntityLightLevel(entity, level, config), null, config, falloff, out, DynamicLight.Kind.ENTITY);
             return any;
         }
         LightData best = LightCalculator.getBestLightLevel(entity, level, config);
-        return add(entity, 0, best, config, falloff, out, entity instanceof ItemEntity ? DynamicLight.Kind.ITEM_ENTITY : DynamicLight.Kind.ENTITY);
+        return add(entity, 0, best, null, config, falloff, out, entity instanceof ItemEntity ? DynamicLight.Kind.ITEM_ENTITY : DynamicLight.Kind.ENTITY);
     }
 
-    /** Fades one source toward its wanted level and, if it still shines, adds its light. */
-    private boolean add(Entity entity, int slot, LightData data, LivelyConfig config, Falloff falloff, List<DynamicLight> out, DynamicLight.Kind kind) {
+    /**
+     * Fades one source toward its wanted level and, if it still shines, adds its light. {@code stack} is the item the light
+     * comes from when one slot is known (its colour), else the entity's colour as Colorful Lighting resolves it.
+     */
+    private boolean add(Entity entity, int slot, LightData data, @Nullable ItemStack stack, LivelyConfig config, Falloff falloff, List<DynamicLight> out, DynamicLight.Kind kind) {
         long key = ((long) entity.getId() << 8) | (slot & 0xFF);
         boolean smoothing = config.smoothing && (config.smoothing_all_entities || entity instanceof Player);
         float wanted = data.level;
@@ -277,10 +317,24 @@ public final class ClientLightEngine {
         if (data.shape == LightShape.SPOT) {
             direction = pt -> entity instanceof LivingEntity ? entity.getViewVector(pt) : entity.getLookAngle();
         }
-        float range = data.reach();
-        out.add(new DynamicLight(key, kind, mover, direction, level, data.color, data.shape, data.coneDegrees, Math.max(1f, range), falloff));
+        // the reach follows the faded level for a point (the wanted level is 0 while a light fades out); a spot keeps its range
+        float range = data.range > 0 ? data.range : data.shape == LightShape.SPOT ? LightShape.DEFAULT_SPOT_RANGE : level;
+        // a definition without a colour takes Colorful Lighting's for the stack, or for the entity (its own, what it holds, fire)
+        int rgb = data.color;
+        if (rgb < 0 && wanted > 0) {
+            rgb = stack != null && !stack.isEmpty() ? LightColors.ofItem(stack) : LightColors.ofEntity(entity);
+            if (rgb >= 0) colours.put(key, rgb);
+        } else if (rgb < 0) {
+            Integer kept = colours.get(key);
+            if (kept != null) rgb = kept; // a light fading out keeps the colour it had
+        }
+        if (wanted <= 0 && fade == null) colours.remove(key);
+        out.add(new DynamicLight(key, kind, mover, direction, level, rgb, data.shape, data.coneDegrees, Math.max(1f, range), falloff));
         return true;
     }
+
+    /** The colour each light last had, so one fading out (its stack gone) keeps it. */
+    private final Map<Long, Integer> colours = new HashMap<>();
 
     private static Vec3 eye(Entity entity, float pt) {
         Vec3 p = pt >= 1.0f ? entity.position() : entity.getPosition(pt);

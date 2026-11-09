@@ -135,12 +135,12 @@ final class ContraptionLamps {
                     }
                 };
                 float range = def.range() > 0 ? def.range() : LightShape.DEFAULT_SPOT_RANGE;
-                return new DynamicLight(key, DynamicLight.Kind.CONTRAPTION_LAMP, mover, dir, def.levelOf(lamp.state), def.color(), LightShape.SPOT,
+                return new DynamicLight(key, DynamicLight.Kind.CONTRAPTION_LAMP, mover, dir, def.levelOf(lamp.state), def.color() >= 0 ? def.color() : LightColors.ofBlock(lamp.state), LightShape.SPOT,
                         def.coneDegrees() > 0 ? def.coneDegrees() : LightShape.DEFAULT_CONE_DEGREES, range, falloff);
             }
         }
         int level = def != null ? def.levelOf(lamp.state) : lamp.state.getLightEmission();
-        int rgb = def != null ? def.color() : -1;
+        int rgb = def != null && def.color() >= 0 ? def.color() : LightColors.ofBlock(lamp.state);
         return new DynamicLight(key, DynamicLight.Kind.CONTRAPTION_LAMP, mover, null, level, rgb, LightShape.POINT, 0f, level, falloff);
     }
 }

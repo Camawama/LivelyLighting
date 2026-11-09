@@ -144,6 +144,11 @@ public class LivelyConfig {
     public boolean light_source_colors = true;
     /** With Curios: an item with a light level worn in a curio slot (a torch or lantern on a belt) lights its wearer. */
     public boolean curios_lighting = true;
+    // Dynamic light counts as the world's own light on the server (0.6.0): mob spawning, snow and ice melting, crops
+    // and anything else that asks how bright a place is, as the light blocks gave it. A point light of each source's
+    // level losing a level per block, from carried, worn and burning lights and other mods' lights; walls don't stop
+    // it. Idle in server_blocks mode, where the blocks are real light.
+    public boolean gameplay_light = true;
 
     public Experimental experimental = new Experimental();
     // The client module (0.5.0): how a client that draws its own light draws it. Read by the client only.
@@ -174,10 +179,21 @@ public class LivelyConfig {
         public int shader_max_distance = 64;
         // Whether a spot light also draws a faint beam in the air (off: only the surfaces it lights).
         public boolean spot_beams = false;
-        // Shader renderer: how dynamic light passes through blocks. "voxel" marches each light through a 64-block cube of
-        // the blocks round the camera: a wall stops it (a torch behind a wall lights neither the room beyond nor the ground
-        // through the floor) and stained glass tints it, as Colorful Lighting's filters tint block light; "off" lets light
-        // through everything, as other dynamic lighting mods do. Costs a texture read per block crossed per light per vertex.
+        // The beam's opacity at the light, 0 to 1 (0.22 before 0.6.0: far too solid).
+        public double spot_beam_opacity = 0.06;
+        // A server without Lively Lighting (a vanilla server, another pack) says nothing about a mode: on, this client
+        // draws the light it can see anyway (its own and other players' held items, burning mobs, ships' lamps), as other
+        // dynamic lighting mods do; off, nothing is drawn there. A server with an older Lively Lighting places blocks and
+        // is never drawn over.
+        public boolean draw_without_server = true;
+        // The world's own light on this client answers the drawn dynamic light too (0.6.0): mods that read how bright the
+        // player's place is (Stellar View dims its stars and dust near a light source) see a held torch as they saw its
+        // light block. The meshes and Colorful Lighting's samples don't read this.
+        public boolean world_light = true;
+        // Shader renderer: how dynamic light passes through blocks. "voxel" (Colorful Lighting 2.9.0) propagates each light
+        // through a 96-block cube of the blocks round the camera the way a placed lamp's light spreads: a level lost per
+        // block along the path, stopped by walls, tinted by stained glass, round corners, with ships' blocks included; the
+        // look of Minecraft's own light. "off" lets light through everything, as other dynamic lighting mods do.
         public String transmission = "voxel";
         // Lightmap renderer with Colorful Lighting: point lights are propagated by its engine as lamps of their colour, so
         // their light stops at walls as a block's does and shader packs read it as block light. Off: a straight-line light

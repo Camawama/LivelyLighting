@@ -44,9 +44,13 @@ public final class ClientLights {
         });
         if (ModList.get().isLoaded("colorful_lighting")) {
             colorful = ColorfulBridge.register(ENGINE);
+            if (colorful) ColorfulBridge.registerShipBlocks();
         }
-        // other mods ask Camafy how much dynamic light reaches a place; this client answers from what it draws
-        net.camacraft.camafy.light.DynamicLights.setQuery((level, pos) -> drawing() ? ENGINE.levelAt(pos) : 0f);
+        // other mods ask Camafy how much dynamic light reaches a place; this client answers from what it draws (the server
+        // from GameplayLights), and so do the world's block light layer and raw brightness here (client.world_light)
+        net.cama.livelylighting.source.GameplayLights.setClientAnswer((level, pos) -> drawing() ? ENGINE.levelAt(pos) : 0f);
+        // a page of the client keys in Embeddium's video settings (0.6.0)
+        if (ModList.get().isLoaded("embeddium")) net.cama.livelylighting.client.EmbeddiumOptions.register();
         MinecraftForge.EVENT_BUS.addListener(SpotBeams::render);
         LOGGER.info("[LivelyLighting] client module ready ({})", colorful ? "Colorful Lighting draws the light" : "standalone lightmap renderer");
     }

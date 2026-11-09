@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.6.0 — Unreleased
+
+### Added
+
+- **Light that spreads like Minecraft's** (2026-11-09, with Colorful Lighting 2.9.0). On the shader path a dynamic light is propagated through
+  the blocks round the camera the way a placed lamp's light is: a level lost per block along the path, stopped by walls, tinted by stained glass,
+  round corners, with the blocks of Valkyrien Skies ships included (`client.transmission` `voxel`, on). 0.5.1 marched a straight line from each
+  vertex to each light, which drew hard shadows with jagged edges, black behind every wall and no light through a ship's glass.
+- **Colours for every light.** A definition without a `color` takes the colour Colorful Lighting gives its source: a held glowstone lights the
+  ground orange as the placed block does, a burning mob's light is fire's, a ship's or contraption's lamp its block's (Colorful Lighting 2.9.0 for
+  lamps). Before, every such light was white.
+- **Dynamic light is the world's light on the server** (`gameplay_light`, on): mob spawning, snow and ice melting, crops and anything else that asks
+  how bright a place is see the carried, worn and burning lights and other mods' lights, as they saw the light blocks; a point light of each
+  source's level losing a level per block (walls don't stop it). Idle in `server_blocks` mode. Camafy's `DynamicLights.lightAt` is answered on
+  the server from the same lights, and the client's raw brightness (`getMaxLocalRawBrightness`) from what it draws.
+- **A client on a server without the mod draws for itself** (`client.draw_without_server`, on): a vanilla server or another pack says nothing
+  about a mode, and the client draws the light it can see; a server with an older Lively Lighting places blocks and is never drawn over. The mod
+  works on the server alone, on the client alone, or both.
+- **A Lively Lighting page in Embeddium's video settings** with the client keys: renderer, falloff, light through blocks, propagated lightmap
+  lights, spot beams and their opacity, the shader and lightmap budgets, drawing without a server.
+- `client.spot_beam_opacity` (0.06): the beam's opacity at the light (a fixed 0.22 before, far too solid).
+- `client.world_light` (on): the client's own block light layer and raw brightness answer the drawn dynamic light, for mods that read
+  how bright the player's place is.
+
+### Fixed
+
+- A light put away vanished at once instead of fading out: the fading light's reach took the wanted level (0), so it reached one block. The
+  reach follows the faded level now, and other mods' lights that stop being given fade out where they were (they vanished at once too).
+- Other mods' lights fade with `smoothing`, as players' do (they needed `smoothing_all_entities`).
+
 ## 0.5.1 — Unreleased
 
 ### Added

@@ -8,11 +8,22 @@ with the same definitions and the same configuration keys whichever is used:
 - **The server module** places `minecraft:light` blocks where light should be. Every client, modded or not, sees it. It is the
   original mod, and the costly way: each block a light moves to is a block change on the server and a light update and a chunk
   rebuild on every client.
-- **The client module** draws the same light on the client, with no block placed anywhere. With Colorful Lighting 2.8.0 it draws
+- **The client module** draws the same light on the client, with no block placed anywhere. With Colorful Lighting 2.9.0 it draws
   in colour through Colorful Lighting's own light sampling (entities, block entities, particles and chunk meshes), and where
   Embeddium runs Colorful Lighting's shaders without an Oculus shader pack it draws in the shaders themselves, so a moving light
-  rebuilds no mesh at all; under a shader pack the light goes through the packed light the pack decodes, like every dynamic
-  lighting mod. Without Colorful Lighting it draws white light through the vanilla and Embeddium light lookups.
+  rebuilds no mesh at all. There the light spreads through the blocks round the camera the way a placed lamp's light does: a
+  level lost per block along the path, stopped by walls, tinted by stained glass, round corners, the blocks of Valkyrien Skies
+  ships included; under a shader pack the light goes through the packed light the pack decodes, like every dynamic lighting mod.
+  Without Colorful Lighting it draws white light through the vanilla and Embeddium light lookups.
+
+## Where the mod is needed
+
+Either side alone, or both. **Server only:** every client sees light blocks (`lighting_mode` `server_blocks`, or `hybrid` for clients without
+the mod). **Client only** (a vanilla server, another pack): the client draws the light it can see, its own and other players' held items,
+burning mobs, ships' lamps (`client.draw_without_server`); a server with an older Lively Lighting places blocks and is never drawn over.
+**Both:** the client draws its own light and the server lights the clients without the mod (`hybrid`), and the server counts the dynamic
+light as the world's own for mob spawning, snow and ice melting and whatever else asks how bright a place is (`gameplay_light`). Camafy is
+needed wherever the mod is; Colorful Lighting is optional on the client and gives the light its colours and its spread through the blocks.
 
 `lighting_mode` in `livelylighting.json` says who shows the light (read by the server, the integrated one in singleplayer too):
 `server_blocks` (the server places blocks for everyone; a client with the mod draws nothing), `client` (the server places nothing;
@@ -33,14 +44,24 @@ and `light_level` (default the block's emission). The default set makes `minecra
 range 32 along its rod. A block in `#livelylighting:headlights` is a headlight with the default cone when it has no definition;
 an item in `#livelylighting:flashlights` a flashlight.
 
+To try a flashlight, give any item a definition with a shape: a file `config/livelylighting/item_definitions/spyglass_flashlight.json` with
+`{"item_id": "minecraft:spyglass", "light_level": 14, "shape": "spot", "cone_degrees": 35, "range": 32, "color": "#FFF2CC"}` makes a held
+spyglass a flashlight pointing where you look (`/ll reload` reads it in). Headlights on blocks: a definition in `block_definitions/` with
+`"shape": "spot"` and `"direction": "facing"`, or the block in `#livelylighting:headlights`; the default set makes an end rod one. MKW
+Mobility's karts carry headlights of their own through Camafy's dynamic light API. `client.spot_beams` draws the beam in the air.
+
 ## The client module's keys (`client`, read by the client only)
 
 *   **`renderer`**: `auto` (Colorful Lighting's shader path where it can run, else the lightmap path), `shader`, `lightmap`, `off`. Default `auto`.
 *   **`falloff`**: `diamond` (a level lost per block of Manhattan distance, vanilla's look) or `round` (per block of straight distance). Default `diamond`.
 *   **`lightmap_rebuilds_per_tick`** (12), **`lightmap_max_reach`** (15), **`lightmap_max_moving_lamps`** (32): the lightmap path's budgets.
 *   **`shader_max_lights`** (16, at most 64), **`shader_max_distance`** (64): the lights the shaders get per frame, nearest the camera first; every terrain vertex in view evaluates each of them.
-*   **`spot_beams`** (false): a faint additive cone in the air along every spot light.
-*   **`transmission`** (`voxel`, `off`): how dynamic light passes through blocks on the shader path (Colorful Lighting 2.8.1): a wall stops it and stained glass tints it, as the block mode always did through Colorful Lighting's filters; `off` lets it through everything, as other dynamic lighting mods do.
+*   **`spot_beams`** (false), **`spot_beam_opacity`** (0.06): a faint additive cone in the air along every spot light, and how visible it is at the light.
+*   **`transmission`** (`voxel`, `off`): how dynamic light passes through blocks on the shader path (Colorful Lighting 2.9.0): `voxel` propagates each light through a 96-block cube of the blocks round the camera as a placed lamp's light spreads, stopped by walls, tinted by stained glass, round corners, ships' blocks included; `off` lets it through everything, as other dynamic lighting mods do.
+*   **`draw_without_server`** (true): on a server without Lively Lighting this client draws the light it can see.
+*   **`world_light`** (true): the world's own light on this client answers the drawn dynamic light too, for mods that read how bright the player's place is (Stellar View's light pollution). The meshes and Colorful Lighting's samples don't read it.
+
+With Embeddium these keys are also a **Lively Lighting page in the video settings**; a change there is written to `livelylighting.json` and takes effect at once.
 *   **`lightmap_propagate`** (true): on the lightmap path a point light is a lamp Colorful Lighting's engine propagates: stopped by walls, tinted by glass, read by shader packs as block light.
 
 Overrides for a run: `-Dlivelylighting.mode=server_blocks|client|hybrid` (the server), `-Dlivelylighting.clientRenderer=...`, `-Dlivelylighting.clientTransmission=off` (the shader path's transmission march off, for an A/B) and
@@ -100,6 +121,7 @@ This structure allows for easy management of custom light sources without clutte
 *   **`ship_fire_lights`** (Boolean): With `vs_support`: a ship on fire (Camafy's ship fire) gives light like a burning entity, at up to four places on it, lighting the world round it and its own blocks. Default: `true`.
 *   **`clean_copied_ship_lights`** (Boolean): With `vs_support`: the first time in a session a ship comes near a player, light blocks in and round it that the mod has no record of and no player placed by hand are taken out: copies of the mod's own lights that a VMod schematic paste or a ship assembly took along, which would otherwise shine in the copy for good. `-Dlivelylighting.keepShipLights=true` skips it for a run. Default: `true`.
 *   **`light_source_colors`** (Boolean): Clients are told what each of the mod's light blocks stands for (the holder and the slot its light comes from, a lamp, a burning ship), so Colorful Lighting gives the light its source's colour wherever it is: a fast holder's trail, a light fading out after it was put away, lamps merged into one light, the dim edge of a lamp's light on a ship. Needs the mod on the client too (it then answers Colorful Lighting's block light colour API); clients without it keep Colorful Lighting's own guess. `-Dlivelylighting.noLightSourceColors=true` on a client ignores what it is told, for an A/B. Default: `true`.
+*   **`gameplay_light`** (Boolean): Dynamic light counts as the world's own light on the server: mob spawning, snow and ice melting, crops and anything else that asks how bright a place is see the carried, worn and burning lights and other mods' lights, as they saw the light blocks. A point light of each source's level losing a level per block; walls don't stop it. Idle in `server_blocks` mode. Default: `true`.
 *   **`curios_lighting`** (Boolean): With Curios installed, an item with a light level worn in a curio slot (a torch or lantern on a belt) lights its wearer like one in the off hand; the light takes the colour Colorful Lighting gives that item. Lively Lighting also puts the torches and lanterns in Curios' `belt` tag, so a pack with a belt slot (Spyglass Improvements adds one) can hang them there. Default: `true`.
 
 ### Experimental Settings

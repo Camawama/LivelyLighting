@@ -8,7 +8,8 @@
     "LightBlockCollision",
     "LightBlockNoUpdate",
     "LightBlockState",
-    "LightBlockLevel"
+    "LightBlockLevel",
+    "LevelLightEngineMixin"
   ],
   "client": [
     "client.LevelRendererLightMixin",

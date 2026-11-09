@@ -41,12 +41,38 @@ public final class ClientLightMode {
         return i == null ? LightMode.SERVER_BLOCKS : i.mode();
     }
 
-    /** Whether this client draws dynamic light itself: the server leaves it to the client and the renderer is on. */
+    /**
+     * Whether this client draws dynamic light itself: the server leaves it to the client and the renderer is on. A server
+     * that said nothing (0.6.0): one without Lively Lighting at all (a vanilla server, another pack) leaves the light to this
+     * client when {@code client.draw_without_server}; one with an older Lively Lighting places blocks and is never drawn over.
+     */
     public static boolean drawsOwnLight() {
         if (renderer().equals("off")) return false;
         if (FORCED_DRAW) return true;
         LightSourceNet.ModeInfo i = info;
-        return i != null && i.mode().clientDraws() && !i.serverLightsForYou();
+        if (i != null) return i.mode().clientDraws() && !i.serverLightsForYou();
+        return LivelyConfig.get().client.draw_without_server && !serverHasMod();
+    }
+
+    private static net.minecraft.network.Connection checkedConnection;
+    private static boolean checkedHasMod;
+
+    /** Whether the server this client is on runs Lively Lighting (from the login handshake's mod list); true when unknown. */
+    private static boolean serverHasMod() {
+        net.minecraft.client.multiplayer.ClientPacketListener listener = net.minecraft.client.Minecraft.getInstance().getConnection();
+        if (listener == null) return true;
+        net.minecraft.network.Connection connection = listener.getConnection();
+        if (connection == checkedConnection) return checkedHasMod;
+        boolean has = true;
+        if (net.minecraftforge.network.NetworkHooks.isVanillaConnection(connection)) {
+            has = false;
+        } else {
+            net.minecraftforge.network.ConnectionData data = net.minecraftforge.network.NetworkHooks.getConnectionData(connection);
+            if (data != null && data.getModList() != null) has = data.getModList().contains(net.cama.livelylighting.LivelyLighting.MODID);
+        }
+        checkedConnection = connection;
+        checkedHasMod = has;
+        return has;
     }
 
     /** The renderer asked for: {@code auto}, {@code shader}, {@code lightmap} or {@code off}. */

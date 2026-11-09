@@ -96,6 +96,45 @@ final class ColorfulBridge {
         }
     }
 
+    /**
+     * Gives Colorful Lighting the ships' blocks for the volume the dynamic lights are propagated through (2.9.0,
+     * {@code setExternalBlockFiller}): without them a ship's hull stopped no light and its glass tinted none. Older
+     * Colorful Lightings have no such hook; then ships stay transparent to dynamic light, logged once.
+     */
+    static void registerShipBlocks() {
+        try {
+            MethodHandles.Lookup lookup = MethodHandles.publicLookup();
+            Class<?> compat = Class.forName("net.camacraft.colorfullighting.compat.dynamiclights.DynamicLightsCompat");
+            Class<?> fillerType = Class.forName("net.camacraft.colorfullighting.compat.dynamiclights.VoxelOcclusion$BlockFiller");
+            Class<?> writerType = Class.forName("net.camacraft.colorfullighting.compat.dynamiclights.VoxelOcclusion$BlockWriter");
+            MethodHandle set = lookup.findVirtual(writerType, "set", MethodType.methodType(void.class, int.class, int.class, int.class,
+                    net.minecraft.world.level.block.state.BlockState.class, net.minecraft.core.BlockPos.class));
+            MethodHandle register = lookup.findStatic(compat, "setExternalBlockFiller", MethodType.methodType(void.class, fillerType));
+            Object filler = Proxy.newProxyInstance(fillerType.getClassLoader(), new Class<?>[]{fillerType}, (proxy, method, args) -> {
+                if (method.getName().equals("fill") && args != null && args.length == 6) {
+                    Object writer = args[5];
+                    ShipBlocks.fill((ClientLevel) args[0], (Integer) args[1], (Integer) args[2], (Integer) args[3], (Integer) args[4], (x, y, z, state, pos) -> {
+                        try {
+                            set.invoke(writer, x, y, z, state, pos);
+                        } catch (Throwable ignored) {
+                        }
+                    });
+                    return null;
+                }
+                return switch (method.getName()) {
+                    case "toString" -> "LivelyLighting ship blocks";
+                    case "hashCode" -> System.identityHashCode(proxy);
+                    case "equals" -> proxy == args[0];
+                    default -> null;
+                };
+            });
+            register.invoke(filler);
+            LOGGER.info("[LivelyLighting] ships' blocks shadow and tint dynamic light");
+        } catch (Throwable t) {
+            LOGGER.info("[LivelyLighting] this Colorful Lighting takes no structure blocks for dynamic light (2.9.0+): ships don't shadow it ({})", t.toString());
+        }
+    }
+
     /** Whether Colorful Lighting propagates point lights as lamps on the lightmap path (client.lightmap_propagate). */
     static void setPropagation(boolean on) {
         if (setPropagation == null || (sentPropagation != null && sentPropagation == on)) return;

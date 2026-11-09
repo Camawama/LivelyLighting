@@ -30,8 +30,11 @@ public class LivelyLighting
 
         MinecraftForge.EVENT_BUS.register(this);
 
-        // Make sure the mod is recognized as server-side only
+        // Optional on either side: a server with the mod takes clients without it (its blocks light for them), and a client
+        // with the mod joins servers without it (it draws its own light there, client.draw_without_server)
         context.registerExtensionPoint(IExtensionPoint.DisplayTest.class, () -> new IExtensionPoint.DisplayTest(() -> IExtensionPoint.DisplayTest.IGNORESERVERONLY, (a, b) -> true));
+        // dynamic light as the world's own light on the server (0.6.0), and Camafy's lightAt on both sides
+        net.cama.livelylighting.source.GameplayLights.init();
 
         // What each light stands for, to clients that have the mod (light_source_colors); optional on both sides
         if (net.minecraftforge.fml.ModList.get().isLoaded("camafy")) {

@@ -18,7 +18,7 @@ import java.util.List;
 
 /**
  * The faint beam of a spot light in the air ({@code client.spot_beams}): a translucent cone from the light along its axis,
- * drawn additively after the translucent blocks, brightest at the light and gone at its range, in the light's colour. The
+ * drawn additively after the translucent blocks, brightest at the light ({@code client.spot_beam_opacity}) and gone at its range, in the light's colour. The
  * cone is a touch narrower than the lit cone so the beam reads as the bright core of the light. No texture, no particles:
  * the vanilla look of a beacon beam, pointed. Only for lights within 64 blocks of the camera.
  */
@@ -68,7 +68,7 @@ final class SpotBeams {
             Vec3 v = d.cross(u).normalize();
             Vec3 apex = p.subtract(cam);
             Vec3 base = apex.add(d.scale(range));
-            float apexAlpha = 0.22f * strength, baseAlpha = 0f;
+            float apexAlpha = (float) Math.max(0.0, Math.min(1.0, LivelyConfig.get().client.spot_beam_opacity)) * strength, baseAlpha = 0f;
             for (int i = 0; i < SEGMENTS; i++) {
                 double a0 = 2 * Math.PI * i / SEGMENTS, a1 = 2 * Math.PI * (i + 1) / SEGMENTS;
                 Vec3 r0 = base.add(u.scale(Math.cos(a0) * endRadius)).add(v.scale(Math.sin(a0) * endRadius));
