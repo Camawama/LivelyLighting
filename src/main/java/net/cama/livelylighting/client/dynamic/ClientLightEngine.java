@@ -93,14 +93,26 @@ public final class ClientLightEngine {
         int max = Math.max(1, config.max_light_sources);
 
         List<Entity> candidates = new ArrayList<>();
+        Map<Entity, Vec3> places = new HashMap<>();
+        boolean ships = Ships.available();
         for (Entity entity : level.entitiesForRendering()) {
             if (entity.isSpectator()) continue;
             if (!shouldCheck(entity, config)) continue;
-            double dx = Math.abs(entity.getX() - camera.x), dy = Math.abs(entity.getY() - camera.y), dz = Math.abs(entity.getZ() - camera.z);
+            // where the entity is in the world: an item frame on a ship lives in the shipyard, millions of blocks off (0.6.1)
+            Vec3 at = entity.position();
+            if (ships) {
+                ShipRef ship = Ships.managing(entity);
+                if (ship != null) {
+                    Vec3 w = ship.toWorld(at);
+                    if (w != null) at = w;
+                }
+            }
+            double dx = Math.abs(at.x - camera.x), dy = Math.abs(at.y - camera.y), dz = Math.abs(at.z - camera.z);
             if (Math.max(dx, Math.max(dy, dz)) > cull) continue;
+            places.put(entity, at);
             candidates.add(entity);
         }
-        candidates.sort((a, b) -> Double.compare(a.distanceToSqr(camera), b.distanceToSqr(camera)));
+        candidates.sort((a, b) -> Double.compare(places.get(a).distanceToSqr(camera), places.get(b).distanceToSqr(camera)));
         int count = 0;
         for (Entity entity : candidates) {
             if (count >= max) break;
@@ -257,7 +269,9 @@ public final class ClientLightEngine {
             return any;
         }
         LightData best = LightCalculator.getBestLightLevel(entity, level, config);
-        return add(entity, 0, best, null, config, falloff, out, entity instanceof ItemEntity ? DynamicLight.Kind.ITEM_ENTITY : DynamicLight.Kind.ENTITY);
+        // a frame's or a dropped item's colour is the item's; a mob's is its own, then what it holds, then fire
+        ItemStack shown = entity instanceof ItemFrame frame ? frame.getItem() : entity instanceof ItemEntity item ? item.getItem() : null;
+        return add(entity, 0, best, shown, config, falloff, out, entity instanceof ItemEntity ? DynamicLight.Kind.ITEM_ENTITY : DynamicLight.Kind.ENTITY);
     }
 
     /**
@@ -314,11 +328,22 @@ public final class ClientLightEngine {
             mover = pt -> eye(entity, pt);
         }
         DynamicLight.Mover direction = null;
-        if (data.shape == LightShape.SPOT) {
+        LightShape shape = data.shape;
+        float cone = data.coneDegrees;
+        if (shape == LightShape.SPOT) {
             direction = pt -> entity instanceof LivingEntity ? entity.getViewVector(pt) : entity.getLookAngle();
+        } else if (ship != null && entity instanceof ItemFrame frame && config.client.frames_on_ships_are_headlights) {
+            // a lit item in a frame on a ship is a headlight: a cone along the frame's facing, turned with the ship (0.6.1)
+            Vec3 local = Vec3.atLowerCornerOf(frame.getDirection().getNormal());
+            direction = pt -> {
+                Vec3 d = ship.dirToWorld(local);
+                return d == null ? local : d;
+            };
+            shape = LightShape.SPOT;
+            cone = LightShape.DEFAULT_CONE_DEGREES;
         }
         // the reach follows the faded level for a point (the wanted level is 0 while a light fades out); a spot keeps its range
-        float range = data.range > 0 ? data.range : data.shape == LightShape.SPOT ? LightShape.DEFAULT_SPOT_RANGE : level;
+        float range = data.range > 0 ? data.range : shape == LightShape.SPOT ? LightShape.DEFAULT_SPOT_RANGE : level;
         // a definition without a colour takes Colorful Lighting's for the stack, or for the entity (its own, what it holds, fire)
         int rgb = data.color;
         if (rgb < 0 && wanted > 0) {
@@ -329,7 +354,7 @@ public final class ClientLightEngine {
             if (kept != null) rgb = kept; // a light fading out keeps the colour it had
         }
         if (wanted <= 0 && fade == null) colours.remove(key);
-        out.add(new DynamicLight(key, kind, mover, direction, level, rgb, data.shape, data.coneDegrees, Math.max(1f, range), falloff));
+        out.add(new DynamicLight(key, kind, mover, direction, level, rgb, shape, cone, Math.max(1f, range), falloff));
         return true;
     }
 

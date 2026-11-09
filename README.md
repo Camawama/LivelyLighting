@@ -59,6 +59,7 @@ Mobility's karts carry headlights of their own through Camafy's dynamic light AP
 *   **`spot_beams`** (false), **`spot_beam_opacity`** (0.06): a faint additive cone in the air along every spot light, and how visible it is at the light.
 *   **`transmission`** (`voxel`, `off`): how dynamic light passes through blocks on the shader path (Colorful Lighting 2.9.0): `voxel` propagates each light through a 96-block cube of the blocks round the camera as a placed lamp's light spreads, stopped by walls, tinted by stained glass, round corners, ships' blocks included; `off` lets it through everything, as other dynamic lighting mods do.
 *   **`draw_without_server`** (true): on a server without Lively Lighting this client draws the light it can see.
+*   **`frames_on_ships_are_headlights`** (true): a lit item in an item frame on a Valkyrien Skies ship is a headlight along the frame's facing, turned with the ship.
 *   **`world_light`** (true): the world's own light on this client answers the drawn dynamic light too, for mods that read how bright the player's place is (Stellar View's light pollution). The meshes and Colorful Lighting's samples don't read it.
 
 With Embeddium these keys are also a **Lively Lighting page in the video settings**; a change there is written to `livelylighting.json` and takes effect at once.

@@ -82,8 +82,12 @@ public class LightCalculator {
         itemCache.clear();
     }
 
+    /** Every exact-id item definition by its id, resolved when the item is looked up: an item registered after the definitions were read (a KubeJS item) still finds its definition (0.6.1). */
+    private static final Map<ResourceLocation, LightData> itemsById = new java.util.concurrent.ConcurrentHashMap<>();
+
     public static void reloadConfig() {
         itemCache.clear();
+        itemsById.clear();
         regexItems.clear();
         entityCache.clear();
         regexEntities.clear();
@@ -154,10 +158,13 @@ public class LightCalculator {
                     String patternStr = id.substring(6);
                     regexItems.add(new RegexLightData(Pattern.compile(patternStr), data));
                 } else {
-                    Item item = ForgeRegistries.ITEMS.getValue(new ResourceLocation(id));
+                    ResourceLocation key = new ResourceLocation(id);
+                    itemsById.put(key, data);
+                    Item item = ForgeRegistries.ITEMS.getValue(key);
                     if (item != null && item != Items.AIR) {
                         itemCache.put(item, data);
                     }
+                    // else the item isn't registered yet (a KubeJS item registers after the definitions are first read): matched by id when it is looked up
                 }
 
             } catch (Exception e) {
@@ -398,7 +405,13 @@ public class LightCalculator {
     private static LightData lookupItem(Item item, LivelyConfig config) {
         LightData data = itemCache.get(item);
         if (data != null) return data;
-        String id = ForgeRegistries.ITEMS.getKey(item).toString();
+        ResourceLocation key = ForgeRegistries.ITEMS.getKey(item);
+        if (key != null) data = itemsById.get(key);
+        if (data != null) {
+            itemCache.put(item, data);
+            return data;
+        }
+        String id = String.valueOf(key);
         for (RegexLightData regex : regexItems) {
             if (regex.pattern.matcher(id).matches()) {
                 data = regex.data;

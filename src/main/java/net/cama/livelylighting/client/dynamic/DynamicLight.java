@@ -73,8 +73,10 @@ public final class DynamicLight {
             double cos = (dx * dir.x + dy * dir.y + dz * dir.z) / d;
             double outer = Math.cos(Math.toRadians(outerDegrees * 0.5));
             double inner = Math.cos(Math.toRadians(innerDegrees() * 0.5));
-            if (cos <= outer) return 0;
-            double cone = inner <= outer ? 1.0 : Math.min(1.0, (cos - outer) / (inner - outer));
+            double cone = cos <= outer ? 0.0 : inner <= outer ? 1.0 : Math.min(1.0, (cos - outer) / (inner - outer));
+            // the lamp itself and what carries it are lit all round (Colorful Lighting 2.9.1 draws it so)
+            cone = Math.max(cone, Math.max(0.0, Math.min(1.0, 3.0 - d)));
+            if (cone <= 0.0) return 0;
             // a beam dims with the distance along it over its range, not per block as a point light does
             l = level * (1.0 - d / range) * cone;
         } else {

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.1 — Unreleased
+
+### Added
+
+- **Item frames on ships are headlights** (`client.frames_on_ships_are_headlights`, on): a lit item in a frame on a Valkyrien Skies
+  ship shines as a cone along the frame's facing, turned with the ship.
+
+### Fixed
+
+- An item definition for an item registered after the definitions were read (a KubeJS item) never applied: the id is kept and
+  matched when the item is first looked up.
+
+### Changed
+
+- With Colorful Lighting 2.9.1 a round light is round again (the field's levels are the analytic falloff wherever the way through the
+  blocks is straight) and a moving light slides between ticks instead of stepping; a spot light lights everything within two blocks of
+  itself, so a kart's body under its headlights no longer flickers (`DynamicLights.lightAt` agrees).
+
 ## 0.6.0 — Unreleased
 
 ### Added

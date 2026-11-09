@@ -119,15 +119,24 @@ public final class GameplayLights {
                 for (Entity entity : level.getAllEntities()) {
                     if (entity instanceof Player || entity.isSpectator() || !shouldCheck(entity, config)) continue;
                     boolean near = false;
+                    // an entity in a ship's shipyard (an item frame on a ship) is where the ship is
+                    Vec3 at = entity.position();
+                    if (net.camacraft.camafy.compat.vs.Ships.available()) {
+                        net.camacraft.camafy.compat.vs.ShipRef ship = net.camacraft.camafy.compat.vs.Ships.managing(entity);
+                        if (ship != null) {
+                            Vec3 w = ship.toWorld(at);
+                            if (w != null) at = w;
+                        }
+                    }
                     for (Player p : players) {
-                        if (Math.max(Math.abs(p.getX() - entity.getX()), Math.max(Math.abs(p.getY() - entity.getY()), Math.abs(p.getZ() - entity.getZ()))) <= ENTITY_RANGE) {
+                        if (Math.max(Math.abs(p.getX() - at.x), Math.max(Math.abs(p.getY() - at.y), Math.abs(p.getZ() - at.z))) <= ENTITY_RANGE) {
                             near = true;
                             break;
                         }
                     }
                     if (!near) continue;
                     LightData data = LightCalculator.getBestLightLevel(entity, level, config);
-                    if (data.level > 0) scanned.add(cell(entity.getX(), entity.getEyeY(), entity.getZ(), data.level));
+                    if (data.level > 0) scanned.add(cell(at.x, at.y + entity.getEyeHeight(), at.z, data.level));
                 }
             }
             entities = pack(scanned);

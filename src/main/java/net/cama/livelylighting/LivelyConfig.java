@@ -190,6 +190,9 @@ public class LivelyConfig {
         // player's place is (Stellar View dims its stars and dust near a light source) see a held torch as they saw its
         // light block. The meshes and Colorful Lighting's samples don't read this.
         public boolean world_light = true;
+        // A lit item in an item frame on a Valkyrien Skies ship is a headlight (0.6.1): a cone along the frame's facing, turned
+        // with the ship, the default cone and reach; off, it is the point light it is on the ground.
+        public boolean frames_on_ships_are_headlights = true;
         // Shader renderer: how dynamic light passes through blocks. "voxel" (Colorful Lighting 2.9.0) propagates each light
         // through a 96-block cube of the blocks round the camera the way a placed lamp's light spreads: a level lost per
         // block along the path, stopped by walls, tinted by stained glass, round corners, with ships' blocks included; the
