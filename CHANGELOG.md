@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.5.0 — Unreleased
+
+### Added
+
+- **The client module** (2026-11-09). Dynamic light drawn on the client with no light block placed: the same sources, definitions and
+  configuration keys as the server module, read by the shared `LightCalculator`. With Colorful Lighting 2.8.0 the lights are handed to
+  its dynamic light provider API and drawn in colour through its light sampling, or in its Embeddium and Flywheel shaders where no
+  shader pack replaces them (no mesh rebuilt when a light moves); without it, white light through the vanilla and Embeddium light
+  lookups with a rebuild budget. `lighting_mode` (`server_blocks`, `client`, `hybrid` default) decides who shows the light; the
+  server tells each client in a `Mode` message (channel version 3), with the forced and switched-off entities of `/ll add` and
+  `/ll toggle`. In `hybrid` the server places light blocks only where a player whose client lacks the mod can see them.
+- **Light shapes.** `shape` (`point`, `spot`), `cone_degrees`, `range` and `color` on item, entity and block definitions; spot lights
+  are headlights on ships and contraptions and flashlights in hand. `block_definitions/` (default: `minecraft:end_rod` is a
+  headlight), the tags `#livelylighting:headlights` and `#livelylighting:flashlights`. `client.falloff` picks vanilla's diamond or a
+  round light.
+- **Create contraptions** are moving structures like ships: their lamps light the world as they move (client module).
+- `/ll config` sets string options too (`lighting_mode`, `client.renderer`, `client.falloff`).
+
+### Changed
+
+- `LightCalculator` takes any `Level` and is thread-safe (the client and the integrated server share it in singleplayer); entity
+  definitions are full definitions (shape, colour), not bare levels.
+- The description no longer says "fully server-sided".
+
 ## 0.4.4 — Unreleased
 
 ### Added

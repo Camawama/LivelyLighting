@@ -105,6 +105,7 @@ public class LivelyLightingCommand {
         ServerLevel level = (ServerLevel) entity.level();
         LivelyLightingData data = LivelyLightingData.get(level);
         data.toggleEntity(entity.getUUID());
+        net.cama.livelylighting.source.LightModes.broadcastMode(level.getServer());
         
         boolean disabled = data.isEntityDisabled(entity.getUUID());
         String status = disabled ? "disabled" : "enabled";
@@ -143,6 +144,7 @@ public class LivelyLightingCommand {
         ServerLevel world = (ServerLevel) entity.level();
         LivelyLightingData data = LivelyLightingData.get(world);
         data.addForcedEntity(entity.getUUID(), level);
+        net.cama.livelylighting.source.LightModes.broadcastMode(world.getServer());
         
         context.getSource().sendSuccess(() -> Component.literal("Added dynamic lighting (Level " + level + ") for " + entity.getName().getString()), true);
         return 1;
@@ -154,6 +156,7 @@ public class LivelyLightingCommand {
         ServerLevel world = (ServerLevel) entity.level();
         LivelyLightingData data = LivelyLightingData.get(world);
         data.removeForcedEntity(entity.getUUID());
+        net.cama.livelylighting.source.LightModes.broadcastMode(world.getServer());
         
         context.getSource().sendSuccess(() -> Component.literal("Removed forced dynamic lighting for " + entity.getName().getString()), true);
         return 1;
@@ -171,6 +174,9 @@ public class LivelyLightingCommand {
             if (option.startsWith("experimental.")) {
                 field = LivelyConfig.Experimental.class.getField(option.substring(13));
                 target = config.experimental;
+            } else if (option.startsWith("client.")) {
+                field = LivelyConfig.Client.class.getField(option.substring(7));
+                target = config.client;
             } else {
                 field = LivelyConfig.class.getField(option);
             }
@@ -181,6 +187,8 @@ public class LivelyLightingCommand {
                 field.setInt(target, Integer.parseInt(value));
             } else if (field.getType() == double.class) {
                 field.setDouble(target, Double.parseDouble(value));
+            } else if (field.getType() == String.class) {
+                field.set(target, value);
             } else {
                 context.getSource().sendFailure(Component.literal("Cannot modify this config option via command."));
                 return 0;
@@ -188,6 +196,7 @@ public class LivelyLightingCommand {
             
             LivelyConfig.save();
             LightManager.reloadConfig();
+            net.cama.livelylighting.source.LightModes.broadcastMode(context.getSource().getServer());
             
             // Purge lights if the mod was disabled
             if (option.equals("enable") && !config.enable) {

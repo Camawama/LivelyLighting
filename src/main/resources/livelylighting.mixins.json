@@ -10,6 +10,11 @@
     "LightBlockState",
     "LightBlockLevel"
   ],
+  "client": [
+    "client.LevelRendererLightMixin",
+    "client.EntityRendererLightMixin",
+    "client.WorldSliceLightMixin"
+  ],
   "injectors": {
     "defaultRequire": 1
   },

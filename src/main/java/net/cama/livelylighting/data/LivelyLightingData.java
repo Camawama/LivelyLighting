@@ -64,6 +64,16 @@ public class LivelyLightingData extends SavedData {
         return forcedLightLevels.get(uuid);
     }
 
+    /** A copy of the forced levels (/ll add), for the Mode message. */
+    public java.util.Map<UUID, Integer> forcedEntities() {
+        return new java.util.HashMap<>(forcedLightLevels);
+    }
+
+    /** A copy of the entities switched off (/ll toggle), for the Mode message. */
+    public java.util.Set<UUID> disabledEntities() {
+        return new java.util.HashSet<>(disabledEntities);
+    }
+
     public boolean arePlayerSoundsDisabled(UUID uuid) {
         return soundDisabledPlayers.contains(uuid);
     }

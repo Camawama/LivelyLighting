@@ -2,10 +2,12 @@ package net.cama.livelylighting.data;
 
 import net.cama.livelylighting.LivelyLighting;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.tags.ItemTags;
 import net.minecraft.tags.TagKey;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.level.block.Block;
 import net.minecraftforge.registries.ForgeRegistries;
 
 public class ModTags {
@@ -15,10 +17,17 @@ public class ModTags {
         public static final TagKey<Item> LIGHT_LEVEL_9 = tag("light_level/9");
         public static final TagKey<Item> LIGHT_LEVEL_6 = tag("light_level/6");
         public static final TagKey<Item> LIGHT_LEVEL_3 = tag("light_level/3");
+        /** An item in this tag is a spot light in hand with the default cone, when it has no definition of its own (0.5.0). */
+        public static final TagKey<Item> FLASHLIGHTS = tag("flashlights");
 
         private static TagKey<Item> tag(String name) {
             return ItemTags.create(new ResourceLocation(LivelyLighting.MODID, name));
         }
+    }
+
+    public static class Blocks {
+        /** A luminous block in this tag on a ship or contraption is a headlight: a spot light along its facing (0.5.0). */
+        public static final TagKey<Block> HEADLIGHTS = BlockTags.create(new ResourceLocation(LivelyLighting.MODID, "headlights"));
     }
 
     public static class Entities {

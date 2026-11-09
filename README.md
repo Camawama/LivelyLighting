@@ -1,6 +1,59 @@
-# Lively Lighting - Configuration Guide
+# Lively Lighting
 
-Lively Lighting is a server-side dynamic lighting mod that is highly configurable. It uses a file-based configuration system located in `config/livelylighting/`.
+Dynamic lighting for Forge 1.20.1 that knows Valkyrien Skies, Create contraptions and Colorful Lighting. Held torches, burning
+mobs, glowing items and the lamps of moving ships and contraptions light the world; the world lights the ships and contraptions
+that pass; the light has its source's colour where Colorful Lighting is installed. Since 0.5.0 the light can be shown two ways,
+with the same definitions and the same configuration keys whichever is used:
+
+- **The server module** places `minecraft:light` blocks where light should be. Every client, modded or not, sees it. It is the
+  original mod, and the costly way: each block a light moves to is a block change on the server and a light update and a chunk
+  rebuild on every client.
+- **The client module** draws the same light on the client, with no block placed anywhere. With Colorful Lighting 2.8.0 it draws
+  in colour through Colorful Lighting's own light sampling (entities, block entities, particles and chunk meshes), and where
+  Embeddium runs Colorful Lighting's shaders without an Oculus shader pack it draws in the shaders themselves, so a moving light
+  rebuilds no mesh at all; under a shader pack the light goes through the packed light the pack decodes, like every dynamic
+  lighting mod. Without Colorful Lighting it draws white light through the vanilla and Embeddium light lookups.
+
+`lighting_mode` in `livelylighting.json` says who shows the light (read by the server, the integrated one in singleplayer too):
+`server_blocks` (the server places blocks for everyone; a client with the mod draws nothing), `client` (the server places nothing;
+clients with the mod draw, clients without see no dynamic light) or `hybrid` (default: the server places blocks only where a
+player whose client has no Lively Lighting can see them, and clients with the mod draw their own). The server tells every client
+the mode on login; a server without 0.5.0 counts as `server_blocks`.
+
+## Light shapes, colour and definitions
+
+A definition (item, entity or block) may give its light a `shape`: `point` (all round, vanilla's light) or `spot` (a cone: a
+headlight on a ship or contraption, a flashlight in hand, pointing where its holder looks or where the block faces), with
+`cone_degrees` (the full outer angle, default 40; the inner, fully lit angle is 60 % of it), `range` (blocks; default the level
+for a point, 32 for a spot) and `color` (`#RRGGBB`; default Colorful Lighting's colour for the item or block, white without
+it). The server module places every shape as a point light of its level; the client module draws the shape. `block_definitions/`
+is new: `block_id` (or `regex:`), `shape`, `cone_degrees`, `range`, `color`, `direction` (`facing` for the block's facing
+property, else a fixed direction such as `north`), `lit_property` (a boolean block property that must be true, such as `lit`)
+and `light_level` (default the block's emission). The default set makes `minecraft:end_rod` a headlight: a 30-degree cone of
+range 32 along its rod. A block in `#livelylighting:headlights` is a headlight with the default cone when it has no definition;
+an item in `#livelylighting:flashlights` a flashlight.
+
+## The client module's keys (`client`, read by the client only)
+
+*   **`renderer`**: `auto` (Colorful Lighting's shader path where it can run, else the lightmap path), `shader`, `lightmap`, `off`. Default `auto`.
+*   **`falloff`**: `diamond` (a level lost per block of Manhattan distance, vanilla's look) or `round` (per block of straight distance). Default `diamond`.
+*   **`lightmap_rebuilds_per_tick`** (12), **`lightmap_max_reach`** (15), **`lightmap_max_moving_lamps`** (32): the lightmap path's budgets.
+*   **`shader_max_lights`** (16, at most 64), **`shader_max_distance`** (64): the lights the shaders get per frame, nearest the camera first; every terrain vertex in view evaluates each of them.
+*   **`spot_beams`** (false): reserved for a faint beam drawn in the air.
+
+Overrides for a run: `-Dlivelylighting.mode=server_blocks|client|hybrid` (the server), `-Dlivelylighting.clientRenderer=...` and
+`-Dlivelylighting.clientMode=client` (a client draws even where the server places blocks).
+
+## Moving structures
+
+With `vs_support`, a Valkyrien Skies ship's lamps light the world as it moves (the brightest `max_lamps_per_ship` first), world
+lamps and other ships' lamps light the ship, an entity on a ship lights the world; a Create contraption's lamps do the same
+(Create is optional). In the client module the lamps follow the ship's render pose and the contraption's render transform every
+frame; a headlight block on either is a spot light along its facing.
+
+## Configuration
+
+The configuration is file-based, in `config/livelylighting/`.
 
 ## Configuration Structure
 

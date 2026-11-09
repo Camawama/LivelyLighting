@@ -27,11 +27,19 @@ public class LivelyConfig {
     private static final File CONFIG_FILE = CONFIG_DIR.resolve("livelylighting.json").toFile();
     public static final Path ITEM_DEFINITIONS_DIR = CONFIG_DIR.resolve("item_definitions");
     public static final Path ENTITY_DEFINITIONS_DIR = CONFIG_DIR.resolve("entity_definitions");
+    /** Block definitions (0.5.0): what a luminous block on a ship or contraption is as a dynamic light (a headlight). */
+    public static final Path BLOCK_DEFINITIONS_DIR = CONFIG_DIR.resolve("block_definitions");
 
     private static LivelyConfig instance;
 
     // Config Fields
     public boolean enable = true;
+    // Who shows the light (0.5.0). "server_blocks": the server places light blocks for everyone, as before.
+    // "client": the server places nothing; clients with the mod draw the light themselves, clients without see
+    // none. "hybrid" (default): the server places light blocks only where a player whose client lacks the mod
+    // can see them, and clients with the mod draw their own. Read by the server (the integrated one too);
+    // every client is told the mode on login.
+    public String lighting_mode = "hybrid";
     public int max_light_sources = 500;
     public boolean enchanted_items_glow = true;
     public boolean fire_aspect_glow = true;
@@ -138,6 +146,33 @@ public class LivelyConfig {
     public boolean curios_lighting = true;
 
     public Experimental experimental = new Experimental();
+    // The client module (0.5.0): how a client that draws its own light draws it. Read by the client only.
+    public Client client = new Client();
+
+    public static class Client {
+        // "auto": the shader renderer where it can run (Embeddium, no shader pack), the lightmap renderer otherwise;
+        // "shader", "lightmap" force one; "off" draws nothing (the server's blocks, if any, still show).
+        public String renderer = "auto";
+        // "diamond": a level lost per block of Manhattan distance, vanilla's look; "round": per block of straight
+        // distance, a round light.
+        public String falloff = "diamond";
+        // Lightmap renderer: chunk sections rebuilt for moved lights per tick, nearest the camera first (the rest wait;
+        // through Colorful Lighting four times this many, as its sections are smaller work). Without a budget 32 lamps on
+        // spinning ships asked for a thousand sections a tick and the client stalled.
+        public int lightmap_rebuilds_per_tick = 12;
+        // Lightmap renderer: the farthest a dynamic light reaches, blocks.
+        public int lightmap_max_reach = 15;
+        // Lightmap renderer: at most this many lamps on moving ships and contraptions are drawn at once, nearest first.
+        public int lightmap_max_moving_lamps = 32;
+        // Shader renderer: lights sent to the shaders per frame, nearest the camera first (at most 64). Every terrain
+        // vertex in view evaluates every one of them, so 64 lights cost a frame several times what 16 do; 16 is the
+        // usual budget of a forward renderer.
+        public int shader_max_lights = 16;
+        // Shader renderer: lights farther than this from the camera are left out.
+        public int shader_max_distance = 64;
+        // Whether a spot light also draws a faint beam in the air (off: only the surfaces it lights).
+        public boolean spot_beams = false;
+    }
 
     public static class Experimental {
         // Sub-block interpolation: treats the source as a continuous point light and
@@ -225,6 +260,7 @@ public class LivelyConfig {
             } else if (isEmpty(ENTITY_DEFINITIONS_DIR)) {
                 generateDefaultEntities();
             }
+            net.cama.livelylighting.source.BlockLightDefs.generateDefaults();
         } catch (IOException e) {
             e.printStackTrace();
         }

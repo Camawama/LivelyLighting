@@ -187,6 +187,14 @@ public class LightManager {
         return removed;
     }
 
+    /** A joining client is told the lighting mode, and whether the server places light blocks for it. */
+    @SubscribeEvent
+    public static void onLogin(net.minecraftforge.event.entity.player.PlayerEvent.PlayerLoggedInEvent event) {
+        if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {
+            net.cama.livelylighting.source.LightModes.sendModeTo(player);
+        }
+    }
+
     @SubscribeEvent
     public static void onEquipmentChange(LivingEquipmentChangeEvent event) {
         if (event.getEntity() instanceof Player player) {
@@ -210,6 +218,10 @@ public class LightManager {
         if (!config.enable) return;
 
         ServerLevel level = (ServerLevel) event.level;
+
+        // lighting_mode: in client mode the block engine stands down (its blocks purged once when the mode changed)
+        net.cama.livelylighting.source.LightModes.tick(level.getServer(), () -> purgeAllLights(level.getServer()));
+        if (!net.cama.livelylighting.source.LightModes.serverPlacesBlocks()) return;
 
         sweepOrphanedLights(level);
         auditRecords(level);
@@ -437,6 +449,7 @@ public class LightManager {
 
     @SubscribeEvent
     public static void onServerStopping(net.minecraftforge.event.server.ServerStoppingEvent event) {
+        net.cama.livelylighting.source.LightModes.reset();
         purgeAllLights(event.getServer());
     }
 }

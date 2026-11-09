@@ -37,6 +37,10 @@ public class LivelyLighting
         if (net.minecraftforge.fml.ModList.get().isLoaded("camafy")) {
             net.cama.livelylighting.network.LightSourceNet.register();
         }
+        // the client module (0.5.0): draws dynamic light where the server leaves it to the client
+        if (net.minecraftforge.fml.loading.FMLEnvironment.dist.isClient()) {
+            modEventBus.addListener((FMLClientSetupEvent e) -> e.enqueueWork(net.cama.livelylighting.client.dynamic.ClientLights::init));
+        }
     }
 
     private void commonSetup(final FMLCommonSetupEvent event)

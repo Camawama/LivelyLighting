@@ -3,15 +3,15 @@ package net.cama.livelylighting.dynamiclighting.engine;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import net.cama.livelylighting.LivelyConfig;
-import net.cama.livelylighting.LivelyLighting;
 import net.cama.livelylighting.data.ModTags;
+import net.cama.livelylighting.dynamiclighting.RegexLightData;
 import net.cama.livelylighting.dynamiclighting.entity.RegexEntityData;
 import net.cama.livelylighting.dynamiclighting.sound.SoundData;
-import net.cama.livelylighting.dynamiclighting.RegexLightData;
+import net.cama.livelylighting.source.LightShape;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.particles.ParticleType;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.tags.FluidTags;
@@ -25,43 +25,52 @@ import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.item.PrimedTnt;
 import net.minecraft.world.entity.monster.Creeper;
 import net.minecraft.world.entity.monster.EnderMan;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.item.enchantment.EnchantmentHelper;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraftforge.registries.ForgeRegistries;
 
 import java.io.File;
 import java.io.FileReader;
-import java.io.FileWriter;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.regex.Pattern;
 
+/**
+ * What gives light: the item and entity definitions ({@code config/livelylighting/item_definitions}, {@code
+ * entity_definitions}) and the rules on top of them (burning, glowing, creepers, TNT, tags, enchantments, auto-detected
+ * block items, water and suffocation). Pure reads of the world; used by the server module to place light and by the
+ * client module to draw it, so both sides answer the same for the same entity. Thread-safe: the caches are concurrent and
+ * the per-tick suffocation memo is per thread (the client and the integrated server share this class in singleplayer).
+ */
 public class LightCalculator {
 
-    private static final Map<Item, LightData> itemCache = new HashMap<>();
-    private static final List<RegexLightData> regexItems = new ArrayList<>();
-    
-    private static final Map<EntityType<?>, Integer> entityCache = new HashMap<>();
-    private static final List<RegexEntityData> regexEntities = new ArrayList<>();
+    private static final Map<Item, LightData> itemCache = new ConcurrentHashMap<>();
+    private static final List<RegexLightData> regexItems = new CopyOnWriteArrayList<>();
+
+    private static final Map<EntityType<?>, LightData> entityCache = new ConcurrentHashMap<>();
+    private static final List<RegexEntityData> regexEntities = new CopyOnWriteArrayList<>();
 
     // Constants to ensure object equality and reduce garbage
-    private static final List<net.minecraft.core.particles.ParticleType<?>> FLAME_PARTICLES = Collections.singletonList(ParticleTypes.FLAME);
+    private static final List<ParticleType<?>> FLAME_PARTICLES = Collections.singletonList(ParticleTypes.FLAME);
     // A body catching fire whooshes (the fire charge's flame) without a flint-and-steel click: nothing struck it.
     private static final List<SoundData> FLAME_SOUNDS = Collections.singletonList(new SoundData(SoundEvents.FIRECHARGE_USE, 0.2f, 1.0f));
     private static final List<SoundData> FLAME_EXTINGUISH_SOUNDS = Collections.singletonList(new SoundData(SoundEvents.GENERIC_EXTINGUISH_FIRE, 0.5f, 1.0f));
-    
-    private static final List<net.minecraft.core.particles.ParticleType<?>> SPARK_PARTICLES = Collections.singletonList(ParticleTypes.ELECTRIC_SPARK);
+
+    private static final List<ParticleType<?>> SPARK_PARTICLES = Collections.singletonList(ParticleTypes.ELECTRIC_SPARK);
     private static final List<SoundData> SPARK_SOUNDS = Collections.singletonList(new SoundData(SoundEvents.BEACON_ACTIVATE, 0.5f, 2.0f));
-    
+
     private static final LightData ENCHANTED_LIGHT_DATA = new LightData(6, false, SPARK_PARTICLES, Collections.emptyList(), Collections.emptyList());
-    private static final LightData EMPTY_LIGHT_DATA = new LightData(0, false, Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+    public static final LightData EMPTY_LIGHT_DATA = new LightData(0, false, Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+    /** A tagged flashlight with no definition of its own: a spot light of level 14 with the default cone. */
+    private static final LightData FLASHLIGHT_LIGHT_DATA = new LightData(14, false, Collections.emptyList(), Collections.emptyList(), Collections.emptyList(),
+            LightShape.SPOT, LightShape.DEFAULT_CONE_DEGREES, LightShape.DEFAULT_SPOT_RANGE, -1);
 
     private static final Gson GSON = new Gson();
 
@@ -70,96 +79,119 @@ public class LightCalculator {
         regexItems.clear();
         entityCache.clear();
         regexEntities.clear();
-        
-        LivelyConfig config = LivelyConfig.get();
-        
-        // Load Item Definitions
         loadItemDefinitions();
-        
-        // Load Entity Definitions
         loadEntityDefinitions();
+        net.cama.livelylighting.source.BlockLightDefs.reload();
     }
-    
+
+    private static LightData plain(int level) {
+        return new LightData(level, false, Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+    }
+
+    /** The optional shape keys of a definition: {@code shape}, {@code cone_degrees}, {@code range}, {@code color}. */
+    static LightData withShape(JsonObject json, int level, boolean sensitive, List<ParticleType<?>> particles, List<SoundData> sounds, List<SoundData> extinguish) {
+        LightShape shape = json.has("shape") ? LightShape.parse(json.get("shape").getAsString(), LightShape.POINT) : LightShape.POINT;
+        float cone = json.has("cone_degrees") ? json.get("cone_degrees").getAsFloat() : 0f;
+        float range = json.has("range") ? json.get("range").getAsFloat() : 0f;
+        int color = json.has("color") ? parseColor(json.get("color").getAsString()) : -1;
+        return new LightData(level, sensitive, particles, sounds, extinguish, shape, cone, range, color);
+    }
+
+    /** {@code #RRGGBB}, {@code RRGGBB} or {@code 0xRRGGBB}; -1 for anything else (the default colour). */
+    public static int parseColor(String text) {
+        if (text == null) return -1;
+        String s = text.trim();
+        if (s.startsWith("#")) s = s.substring(1);
+        else if (s.startsWith("0x") || s.startsWith("0X")) s = s.substring(2);
+        if (s.length() != 6) return -1;
+        try {
+            return Integer.parseInt(s, 16) & 0xFFFFFF;
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
     private static void loadItemDefinitions() {
         File dir = LivelyConfig.ITEM_DEFINITIONS_DIR.toFile();
         if (!dir.exists()) return;
-        
+
         File[] files = dir.listFiles((d, name) -> name.endsWith(".json"));
         if (files == null) return;
-        
+
         for (File file : files) {
             try (FileReader reader = new FileReader(file)) {
                 JsonObject json = GSON.fromJson(reader, JsonObject.class);
-                
+
                 String id = json.get("item_id").getAsString();
                 int level = json.get("light_level").getAsInt();
                 boolean sensitive = json.has("water_sensitive") && json.get("water_sensitive").getAsBoolean();
-                
-                List<net.minecraft.core.particles.ParticleType<?>> particles = new ArrayList<>();
+
+                List<ParticleType<?>> particles = new ArrayList<>();
                 if (json.has("particles")) {
                     String[] pIds = json.get("particles").getAsString().split(",");
                     for (String pId : pIds) {
                         if (particles.size() >= 3) break;
                         if (pId.trim().equals("null")) continue;
-                        net.minecraft.core.particles.ParticleType<?> p = ForgeRegistries.PARTICLE_TYPES.getValue(new ResourceLocation(pId.trim()));
+                        ParticleType<?> p = ForgeRegistries.PARTICLE_TYPES.getValue(new ResourceLocation(pId.trim()));
                         if (p != null) particles.add(p);
                     }
                 }
-                
+
                 List<SoundData> sounds = parseSounds(json.has("activate_sounds") ? json.get("activate_sounds").getAsString() : "null");
                 List<SoundData> extinguishSounds = parseSounds(json.has("deactivate_sounds") ? json.get("deactivate_sounds").getAsString() : "null");
-                
-                LightData data = new LightData(level, sensitive, particles, sounds, extinguishSounds);
+
+                LightData data = withShape(json, level, sensitive, particles, sounds, extinguishSounds);
 
                 if (id.startsWith("regex:")) {
                     String patternStr = id.substring(6);
                     regexItems.add(new RegexLightData(Pattern.compile(patternStr), data));
                 } else {
                     Item item = ForgeRegistries.ITEMS.getValue(new ResourceLocation(id));
-                    if (item != null && item != net.minecraft.world.item.Items.AIR) {
+                    if (item != null && item != Items.AIR) {
                         itemCache.put(item, data);
                     }
                 }
-                
+
             } catch (Exception e) {
                 System.err.println("LivelyLighting: Failed to load item definition: " + file.getName());
                 e.printStackTrace();
             }
         }
     }
-    
+
     private static void loadEntityDefinitions() {
         File dir = LivelyConfig.ENTITY_DEFINITIONS_DIR.toFile();
         if (!dir.exists()) return;
-        
+
         File[] files = dir.listFiles((d, name) -> name.endsWith(".json"));
         if (files == null) return;
-        
+
         for (File file : files) {
             try (FileReader reader = new FileReader(file)) {
                 JsonObject json = GSON.fromJson(reader, JsonObject.class);
-                
+
                 String id = json.get("entity_id").getAsString();
                 int level = json.get("light_level").getAsInt();
-                
+                LightData data = withShape(json, level, false, Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+
                 if (id.startsWith("regex:")) {
                     String patternStr = id.substring(6);
-                    regexEntities.add(new RegexEntityData(Pattern.compile(patternStr), level));
+                    regexEntities.add(new RegexEntityData(Pattern.compile(patternStr), data));
                 } else {
                     EntityType<?> type = ForgeRegistries.ENTITY_TYPES.getValue(new ResourceLocation(id));
                     if (type != null) {
-                        entityCache.put(type, level);
+                        entityCache.put(type, data);
                     }
                 }
-                
+
             } catch (Exception e) {
                 System.err.println("LivelyLighting: Failed to load entity definition: " + file.getName());
                 e.printStackTrace();
             }
         }
     }
-    
-    private static List<SoundData> parseSounds(String entry) {
+
+    static List<SoundData> parseSounds(String entry) {
         List<SoundData> sounds = new ArrayList<>();
         if (!entry.equals("null")) {
             String[] sEntries = entry.split(",");
@@ -167,12 +199,12 @@ public class LightCalculator {
                 if (sounds.size() >= 3) break;
                 sEntry = sEntry.trim();
                 if (sEntry.isEmpty()) continue;
-                
+
                 String[] sParts = sEntry.split(":");
                 float vol = 1.0f;
                 float pitch = 1.0f;
                 String soundId = sEntry;
-                
+
                 if (sParts.length > 1) {
                     boolean parsedParams = false;
                     if (sParts.length > 2) {
@@ -182,29 +214,29 @@ public class LightCalculator {
                             pitch = p;
                             vol = v;
                             StringBuilder sb = new StringBuilder();
-                            for(int i=0; i<sParts.length-2; i++) {
-                                if(i>0) sb.append(":");
+                            for (int i = 0; i < sParts.length - 2; i++) {
+                                if (i > 0) sb.append(":");
                                 sb.append(sParts[i]);
                             }
                             soundId = sb.toString();
                             parsedParams = true;
                         } catch (NumberFormatException ignored) {}
                     }
-                    
+
                     if (!parsedParams) {
                         try {
                             float v = Float.parseFloat(sParts[sParts.length - 1]);
                             vol = v;
                             StringBuilder sb = new StringBuilder();
-                            for(int i=0; i<sParts.length-1; i++) {
-                                if(i>0) sb.append(":");
+                            for (int i = 0; i < sParts.length - 1; i++) {
+                                if (i > 0) sb.append(":");
                                 sb.append(sParts[i]);
                             }
                             soundId = sb.toString();
                         } catch (NumberFormatException ignored) {}
                     }
                 }
-                
+
                 try {
                     ResourceLocation sLoc = new ResourceLocation(soundId);
                     SoundEvent s = ForgeRegistries.SOUND_EVENTS.getValue(sLoc);
@@ -219,10 +251,11 @@ public class LightCalculator {
         return sounds;
     }
 
-    public static LightData getBestLightLevel(Entity entity, ServerLevel level, LivelyConfig config) {
+    /** The brightest light an entity carries or is: its own, its hands, armour, curios, a carried block, a framed item. */
+    public static LightData getBestLightLevel(Entity entity, Level level, LivelyConfig config) {
         LightData entityLight = getEntityLightLevel(entity, level, config);
         if (entityLight.level == 15) return entityLight; // Max possible
-        
+
         if (entity instanceof LivingEntity living) {
             LightData main = getItemLightLevel(living.getMainHandItem(), entity, level, config);
             LightData off = getItemLightLevel(living.getOffhandItem(), entity, level, config);
@@ -230,7 +263,7 @@ public class LightCalculator {
             LightData chest = getItemLightLevel(living.getItemBySlot(EquipmentSlot.CHEST), entity, level, config);
             LightData legs = getItemLightLevel(living.getItemBySlot(EquipmentSlot.LEGS), entity, level, config);
             LightData feet = getItemLightLevel(living.getItemBySlot(EquipmentSlot.FEET), entity, level, config);
-            
+
             LightData best = entityLight;
             if (main.level > best.level) best = main;
             if (off.level > best.level) best = off;
@@ -245,7 +278,7 @@ public class LightCalculator {
                     if (curio.level > best.level) best = curio;
                 }
             }
-            
+
             // Enderman check
             if (entity instanceof EnderMan enderman) {
                 BlockState heldBlock = enderman.getCarriedBlock();
@@ -255,28 +288,28 @@ public class LightCalculator {
                     if (blockLight.level > best.level) best = blockLight;
                 }
             }
-            
+
             return best;
         }
-        
+
         if (entity instanceof ItemEntity itemEntity) {
             return getItemLightLevel(itemEntity.getItem(), entity, level, config);
         }
-        
+
         if (entity instanceof ItemFrame itemFrame) {
             LightData frameLight = getItemLightLevel(itemFrame.getItem(), entity, level, config);
             LightData best = entityLight;
             if (frameLight.level > best.level) best = frameLight;
             return best;
         }
-        
+
         return entityLight;
     }
 
-    public static LightData getEntityLightLevel(Entity entity, ServerLevel level, LivelyConfig config) {
+    public static LightData getEntityLightLevel(Entity entity, Level level, LivelyConfig config) {
         LightData result = computeEntityLightLevel(entity, level, config);
         // Suffocation reads world state and is the expensive test here, so it
-        // runs last and only for entities that would actually emit — the vast
+        // runs last and only for entities that would actually emit: the vast
         // majority of entities are unlit and skip it entirely.
         if (result.level > 0 && isSuffocating(entity, level)) {
             return EMPTY_LIGHT_DATA;
@@ -287,40 +320,40 @@ public class LightCalculator {
     /** A burning entity's light level, and a burning ship's (ship_fire_lights). */
     public static final int BURNING_LIGHT_LEVEL = 15;
 
-    private static LightData computeEntityLightLevel(Entity entity, ServerLevel level, LivelyConfig config) {
+    private static LightData computeEntityLightLevel(Entity entity, Level level, LivelyConfig config) {
         if (config.burning_entity_lighting && entity.isOnFire()) return new LightData(BURNING_LIGHT_LEVEL, false, FLAME_PARTICLES, FLAME_SOUNDS, FLAME_EXTINGUISH_SOUNDS);
-        
+
         if (config.glowing_effect_lighting && entity instanceof LivingEntity living && living.hasEffect(MobEffects.GLOWING)) {
-            return new LightData(6, false, Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+            return plain(6);
         }
-        
+
         if (config.enable_entity_lights) {
             EntityType<?> type = entity.getType();
-            Integer cachedLevel = entityCache.get(type);
-            if (cachedLevel != null) {
-                if (cachedLevel > 0) return new LightData(cachedLevel, false, Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+            LightData cached = entityCache.get(type);
+            if (cached != null) {
+                if (cached.level > 0) return cached;
             } else {
                 String id = ForgeRegistries.ENTITY_TYPES.getKey(type).toString();
-                int foundLevel = 0;
+                LightData found = EMPTY_LIGHT_DATA;
                 for (RegexEntityData regex : regexEntities) {
                     if (regex.pattern.matcher(id).matches()) {
-                        foundLevel = regex.level;
+                        found = regex.data;
                         break;
                     }
                 }
-                entityCache.put(type, foundLevel);
-                if (foundLevel > 0) return new LightData(foundLevel, false, Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+                entityCache.put(type, found);
+                if (found.level > 0) return found;
             }
         }
-        
+
         if (config.creeper_lighting && entity instanceof Creeper creeper) {
             float swell = creeper.getSwelling(0); // 0-1
             if (swell > 0) {
                 int levelVal = (int) (swell * 15);
-                return new LightData(Math.max(1, levelVal), false, Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+                return plain(Math.max(1, levelVal));
             }
         }
-        
+
         if (config.tnt_lighting && entity instanceof PrimedTnt tnt) {
             int fuse = tnt.getFuse();
             if ((fuse / 5) % 2 == 0) {
@@ -329,79 +362,75 @@ public class LightCalculator {
             return new LightData(0, false, FLAME_PARTICLES, Collections.emptyList(), Collections.emptyList());
         }
 
-        if (entity.getType().is(ModTags.Entities.LIGHT_LEVEL_15)) return new LightData(15, false, Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
-        if (entity.getType().is(ModTags.Entities.LIGHT_LEVEL_12)) return new LightData(12, false, Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
-        if (entity.getType().is(ModTags.Entities.LIGHT_LEVEL_9)) return new LightData(9, false, Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
-        if (entity.getType().is(ModTags.Entities.LIGHT_LEVEL_6)) return new LightData(6, false, Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
-        if (entity.getType().is(ModTags.Entities.LIGHT_LEVEL_3)) return new LightData(3, false, Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
-        
-        if (entity instanceof Creeper creeper && creeper.isIgnited()) return new LightData(15, false, Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
-        
+        if (entity.getType().is(ModTags.Entities.LIGHT_LEVEL_15)) return plain(15);
+        if (entity.getType().is(ModTags.Entities.LIGHT_LEVEL_12)) return plain(12);
+        if (entity.getType().is(ModTags.Entities.LIGHT_LEVEL_9)) return plain(9);
+        if (entity.getType().is(ModTags.Entities.LIGHT_LEVEL_6)) return plain(6);
+        if (entity.getType().is(ModTags.Entities.LIGHT_LEVEL_3)) return plain(3);
+
+        if (entity instanceof Creeper creeper && creeper.isIgnited()) return plain(15);
+
         if (config.fire_aspect_glow && entity instanceof LivingEntity living) {
-             if (EnchantmentHelper.getFireAspect(living) > 0) {
-                 return new LightData(9, false, FLAME_PARTICLES, Collections.emptyList(), Collections.emptyList());
-             }
+            if (EnchantmentHelper.getFireAspect(living) > 0) {
+                return new LightData(9, false, FLAME_PARTICLES, Collections.emptyList(), Collections.emptyList());
+            }
         }
 
         return EMPTY_LIGHT_DATA;
     }
 
-    public static LightData getItemLightLevel(ItemStack stack, Entity entity, ServerLevel level, LivelyConfig config) {
+    /** The definition an item has, with no holder in play (no water or suffocation): for the API and for tooltips. */
+    public static LightData definitionOf(ItemStack stack, LivelyConfig config) {
+        if (stack.isEmpty() || stack.getItem() == Items.LIGHT) return EMPTY_LIGHT_DATA;
+        LightData data = lookupItem(stack.getItem(), config);
+        if (data.level > 0) return data;
+        return config.enchanted_items_glow && stack.isEnchanted() ? ENCHANTED_LIGHT_DATA : EMPTY_LIGHT_DATA;
+    }
+
+    private static LightData lookupItem(Item item, LivelyConfig config) {
+        LightData data = itemCache.get(item);
+        if (data != null) return data;
+        String id = ForgeRegistries.ITEMS.getKey(item).toString();
+        for (RegexLightData regex : regexItems) {
+            if (regex.pattern.matcher(id).matches()) {
+                data = regex.data;
+                break;
+            }
+        }
+        if (data == null && item.builtInRegistryHolder().is(ModTags.Items.FLASHLIGHTS)) {
+            data = FLASHLIGHT_LIGHT_DATA;
+        }
+        if (data == null && config.auto_detect_block_light && item instanceof BlockItem blockItem && !config.auto_detect_blacklist.contains(id)) {
+            // Auto-detect block light
+            Block block = blockItem.getBlock();
+            BlockState defaultState = block.defaultBlockState();
+            int light = defaultState.getLightEmission();
+            if (light > 0) data = plain(light);
+        }
+        if (data == null) data = EMPTY_LIGHT_DATA;
+        itemCache.put(item, data);
+        return data;
+    }
+
+    public static LightData getItemLightLevel(ItemStack stack, Entity entity, Level level, LivelyConfig config) {
         if (stack.isEmpty()) return EMPTY_LIGHT_DATA;
-        
+
         Item item = stack.getItem();
         // The light block's own item is the tool for seeing and editing light blocks. A player
         // holding it must never become a light source: every light block they broke came straight
         // back at their eyes, and a purge "came back" the next tick. Hard-coded on top of
         // auto_detect_blacklist, which a config file written before that default was added lacks.
-        if (item == net.minecraft.world.item.Items.LIGHT) return EMPTY_LIGHT_DATA;
-        LightData data = itemCache.get(item);
-        
-        if (data == null) {
-            String id = ForgeRegistries.ITEMS.getKey(item).toString();
-            for (RegexLightData regex : regexItems) {
-                if (regex.pattern.matcher(id).matches()) {
-                    data = regex.data;
-                    itemCache.put(item, data);
-                    break;
-                }
-            }
-            if (data == null) {
-                // Auto-detect block light
-                if (config.auto_detect_block_light && item instanceof BlockItem blockItem) {
-                    // Check blacklist
-                    if (!config.auto_detect_blacklist.contains(id)) {
-                        Block block = blockItem.getBlock();
-                        BlockState defaultState = block.defaultBlockState();
-                        int light = defaultState.getLightEmission();
-                        if (light > 0) {
-                            data = new LightData(light, false, Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
-                            itemCache.put(item, data);
-                        }
-                    }
-                }
-                
-                if (data == null) {
-                    itemCache.put(item, EMPTY_LIGHT_DATA);
-                    return EMPTY_LIGHT_DATA;
-                }
-            }
-        }
-        
-        // data is non-null here (worst case EMPTY_LIGHT_DATA from the cache).
+        if (item == Items.LIGHT) return EMPTY_LIGHT_DATA;
+        LightData data = lookupItem(item, config);
+
         if (data.level > 0) {
-            // Suffocation only matters for stacks that would actually emit; this
-            // used to run for every slot of every entity, lit or not.
+            // Suffocation only matters for stacks that would actually emit
             if (isSuffocating(entity, level)) {
                 return new LightData(0, false, data.particles, data.sounds, data.extinguishSounds);
             }
 
             if (data.waterSensitive) {
-                // Fix edge case: in water AND rain.
-                // If in water, extinguish.
-                // If raining and can see sky, extinguish.
-
-                // Check if fluid height is significant (approx hand/chest level)
+                // In water (the hand or chest under the surface), or in rain under the open sky, the light goes out.
                 boolean inWater = entity.isInWater() && entity.getFluidHeight(FluidTags.WATER) > entity.getEyeHeight() - 0.3;
                 boolean inRain = level.isRainingAt(entity.blockPosition()) && level.canSeeSky(entity.blockPosition());
 
@@ -413,44 +442,46 @@ public class LightCalculator {
         }
 
         if (config.enchanted_items_glow && stack.isEnchanted()) {
-            // Suffocation gates enchanted glow too, exactly as the old
-            // top-of-method check did.
+            // Suffocation gates enchanted glow too
             return isSuffocating(entity, level) ? EMPTY_LIGHT_DATA : ENCHANTED_LIGHT_DATA;
         }
 
         return EMPTY_LIGHT_DATA;
     }
 
-    // Per-tick memo: a lit entity asks this up to 7 times per tick (body check
-    // plus every equipment slot). Entity ids are unique server-wide and an
-    // entity lives in exactly one dimension, so the id alone is a safe key.
-    private static long suffocationCacheTime = Long.MIN_VALUE;
-    private static final Map<Integer, Boolean> suffocationCache = new HashMap<>();
+    /**
+     * Per-tick memo: a lit entity asks this up to 7 times per tick (body check plus every equipment slot). Per thread,
+     * because the client thread and the integrated server thread run this class at once in singleplayer; an entity's
+     * network id is unique within a level and the memo is keyed by level too.
+     */
+    private static final class SuffocationMemo {
+        long time = Long.MIN_VALUE;
+        Level level;
+        final Map<Integer, Boolean> cache = new HashMap<>();
+    }
 
-    private static boolean isSuffocating(Entity entity, ServerLevel level) {
-        // Only living entities suffocate. Projectiles stuck in walls (spectral
-        // arrows), dropped items and item frames keep their light — the anchor
-        // search's line-of-sight check already prevents a genuinely buried source
-        // from lighting through blocks, and a stuck arrow's tip being embedded
-        // made isInWall() wrongly extinguish it.
+    private static final ThreadLocal<SuffocationMemo> SUFFOCATION = ThreadLocal.withInitial(SuffocationMemo::new);
+
+    public static boolean isSuffocating(Entity entity, Level level) {
+        // Only living entities suffocate. Projectiles stuck in walls (spectral arrows), dropped items and item frames
+        // keep their light; a stuck arrow's tip being embedded made isInWall() wrongly extinguish it.
         if (!(entity instanceof LivingEntity)) return false;
 
+        SuffocationMemo memo = SUFFOCATION.get();
         long now = level.getGameTime();
-        if (now != suffocationCacheTime) {
-            suffocationCacheTime = now;
-            suffocationCache.clear();
+        if (now != memo.time || memo.level != level) {
+            memo.time = now;
+            memo.level = level;
+            memo.cache.clear();
         }
-        Boolean cached = suffocationCache.get(entity.getId());
+        Boolean cached = memo.cache.get(entity.getId());
         if (cached != null) return cached;
 
-        // Single suffocation test at the eye block. Vanilla isInWall() samples 8
-        // corner points of the head and streams over collision shapes for what
-        // is visually the same answer: the light goes out when the head is
-        // inside a solid block.
+        // Single suffocation test at the eye block: the light goes out when the head is inside a solid block.
         BlockPos eyePos = BlockPos.containing(entity.getX(), entity.getEyeY(), entity.getZ());
         BlockState state = level.getBlockState(eyePos);
         boolean result = state.isSuffocating(level, eyePos);
-        suffocationCache.put(entity.getId(), result);
+        memo.cache.put(entity.getId(), result);
         return result;
     }
 }

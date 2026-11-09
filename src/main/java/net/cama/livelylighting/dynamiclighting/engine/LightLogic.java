@@ -295,9 +295,14 @@ public class LightLogic {
 
         Set<Integer> processedIds = new HashSet<>();
 
+        // the players the block engine lights for (lighting_mode: all of them, or only those whose client has no
+        // Lively Lighting); a source is placed only where one of them can see it
+        List<? extends Player> litFor = net.cama.livelylighting.source.LightModes.litFor(level);
+
         for (Player player : level.players()) {
             if (sourceCount >= maxSources) break;
             if (player.isSpectator()) continue;
+            if (!litFor.contains(player) && !net.cama.livelylighting.source.LightModes.anyNear(player, litFor, viewDistance)) continue;
 
             processEntity(player, level, worldClusters, worldUltraClusters, processedIds, config, useVs, gameState);
             sourceCount++;
@@ -309,7 +314,7 @@ public class LightLogic {
             // a ~384-block cube per player each tick and ran through VS's
             // Level.getEntities mixin. A Chebyshev range test against each
             // player reproduces the old inflated-box semantics.
-            List<? extends Player> players = level.players();
+            List<? extends Player> players = litFor;
             int unlitInterval = Math.max(1, config.unlit_entity_check_interval);
             long runIndex = level.getGameTime() / Math.max(1, config.light_update_interval);
 
@@ -454,7 +459,9 @@ public class LightLogic {
             // cache, project its lamps into the world, and remember each lamp's
             // world position this tick for pass 2's ship-to-ship lighting.
             Map<Long, ShipRef> nearbyShips = new HashMap<>();
-            for (Player player : level.players()) {
+            // only the players the block engine lights for (lighting_mode): a client that draws its own light needs no
+            // block for a ship's lamp, and the ships it alone sees are left to it
+            for (Player player : litFor) {
                 AABB searchBox = player.getBoundingBox().inflate(viewDistance);
                 for (ShipRef ship : Ships.intersecting(level, searchBox)) {
                     nearbyShips.putIfAbsent(ship.id(), ship);
