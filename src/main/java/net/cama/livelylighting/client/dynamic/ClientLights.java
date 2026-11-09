@@ -44,7 +44,11 @@ public final class ClientLights {
         });
         if (ModList.get().isLoaded("colorful_lighting")) {
             colorful = ColorfulBridge.register(ENGINE);
-            if (colorful) ColorfulBridge.registerShipBlocks();
+            if (colorful) {
+                ColorfulBridge.registerShipBlocks();
+                // Colorful Lighting answers an entity's light itself; it asks here how bright a light's carrier is drawn at least (0.6.2)
+                ColorfulBridge.setEntityGlow(ClientLights::glowOf);
+            }
         }
         // other mods ask Camafy how much dynamic light reaches a place; this client answers from what it draws (the server
         // from GameplayLights), and so do the world's block light layer and raw brightness here (client.world_light)
@@ -58,6 +62,15 @@ public final class ClientLights {
     /** Whether this client draws its own light now. */
     public static boolean drawing() {
         return ClientLightMode.drawsOwnLight() && Minecraft.getInstance().level != null;
+    }
+
+    /**
+     * How bright an entity is drawn at least by a light it carries that asks for it (a kart under its headlights, Camafy's
+     * {@code LightSource.glow}; {@code client.lit_carriers}); 0 for none or while this client doesn't draw.
+     */
+    public static int glowOf(net.minecraft.world.entity.Entity entity) {
+        if (entity == null || !drawing() || !LivelyConfig.get().client.lit_carriers) return 0;
+        return ENGINE.glowOf(entity);
     }
 
     /** Whether the standalone lightmap mixins apply (no Colorful Lighting to draw for us). */

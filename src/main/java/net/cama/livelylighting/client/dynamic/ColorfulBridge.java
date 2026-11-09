@@ -135,6 +135,21 @@ final class ColorfulBridge {
         }
     }
 
+    /**
+     * Tells Colorful Lighting (2.10.0, {@code DynamicLightsCompat.setEntityGlow}) who says how bright an entity carrying a light is
+     * drawn at least: it answers an entity's packed light itself, before the mixin on the block light is asked. Older Colorful
+     * Lightings have no such hook; then carriers are lit only by what reaches them, logged once.
+     */
+    static void setEntityGlow(java.util.function.ToIntFunction<net.minecraft.world.entity.Entity> glow) {
+        try {
+            Class<?> compat = Class.forName("net.camacraft.colorfullighting.compat.dynamiclights.DynamicLightsCompat");
+            MethodHandles.publicLookup().findStatic(compat, "setEntityGlow", MethodType.methodType(void.class, java.util.function.ToIntFunction.class)).invoke(glow);
+            LOGGER.info("[LivelyLighting] what carries a light is drawn lit by it in Colorful Lighting");
+        } catch (Throwable t) {
+            LOGGER.info("[LivelyLighting] this Colorful Lighting takes no carrier glow (2.10.0+): a kart under its headlights is lit only by what reaches it ({})", t.toString());
+        }
+    }
+
     /** Whether Colorful Lighting propagates point lights as lamps on the lightmap path (client.lightmap_propagate). */
     static void setPropagation(boolean on) {
         if (setPropagation == null || (sentPropagation != null && sentPropagation == on)) return;

@@ -7,8 +7,9 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * One dynamic light the client draws this tick: where it is (and where it will be at any moment of the next frame, through
- * its {@link Mover}), its level after fades, its colour, its shape and reach. Built by {@link ClientLightEngine}; handed to
- * the renderers (Colorful Lighting's dynamic sources, or the standalone lightmap path) as positions.
+ * its {@link Mover}), its level after fades, its colour, its shape and reach, and (0.6.2) the entity it asks to be drawn lit
+ * by it. Built by {@link ClientLightEngine}; handed to the renderers (Colorful Lighting's dynamic sources, or the standalone
+ * lightmap path) as positions.
  */
 public final class DynamicLight {
     /** Where a light is at a moment of the frame: an entity's interpolated position, a ship's render pose. */
@@ -35,9 +36,18 @@ public final class DynamicLight {
     public final Falloff falloff;
     /** The tick position, for the CPU paths and the fades. */
     public final Vec3 pos;
+    /** The entity carrying this light that asks to be drawn at least {@link #glowLevel} bright (and its riders with it); -1 for none. */
+    public final int glowEntity;
+    /** How bright the carrier is drawn at least (0 to 15), after fades. */
+    public final float glowLevel;
 
     public DynamicLight(long ownerKey, Kind kind, Mover mover, @Nullable Mover direction, float level, int rgb, LightShape shape,
                         float outerDegrees, float range, Falloff falloff) {
+        this(ownerKey, kind, mover, direction, level, rgb, shape, outerDegrees, range, falloff, -1, 0f);
+    }
+
+    public DynamicLight(long ownerKey, Kind kind, Mover mover, @Nullable Mover direction, float level, int rgb, LightShape shape,
+                        float outerDegrees, float range, Falloff falloff, int glowEntity, float glowLevel) {
         this.ownerKey = ownerKey;
         this.kind = kind;
         this.mover = mover;
@@ -49,6 +59,8 @@ public final class DynamicLight {
         this.range = range;
         this.falloff = falloff;
         this.pos = mover.at(1.0f);
+        this.glowEntity = glowEntity;
+        this.glowLevel = glowLevel;
     }
 
     public boolean isSpot() {
@@ -74,8 +86,6 @@ public final class DynamicLight {
             double outer = Math.cos(Math.toRadians(outerDegrees * 0.5));
             double inner = Math.cos(Math.toRadians(innerDegrees() * 0.5));
             double cone = cos <= outer ? 0.0 : inner <= outer ? 1.0 : Math.min(1.0, (cos - outer) / (inner - outer));
-            // the lamp itself and what carries it are lit all round (Colorful Lighting 2.9.1 draws it so)
-            cone = Math.max(cone, Math.max(0.0, Math.min(1.0, 3.0 - d)));
             if (cone <= 0.0) return 0;
             // a beam dims with the distance along it over its range, not per block as a point light does
             l = level * (1.0 - d / range) * cone;

@@ -42,7 +42,8 @@ is new: `block_id` (or `regex:`), `shape`, `cone_degrees`, `range`, `color`, `di
 property, else a fixed direction such as `north`), `lit_property` (a boolean block property that must be true, such as `lit`)
 and `light_level` (default the block's emission). The default set makes `minecraft:end_rod` a headlight: a 30-degree cone of
 range 32 along its rod. A block in `#livelylighting:headlights` is a headlight with the default cone when it has no definition;
-an item in `#livelylighting:flashlights` a flashlight.
+an item in `#livelylighting:flashlights` a flashlight. An item definition with `"nbt": {"on": true}` applies only to stacks whose
+tag holds those values (a flashlight a script switches on and off by its NBT); one without `nbt` applies to every stack of the item.
 
 To try a flashlight, give any item a definition with a shape: a file `config/livelylighting/item_definitions/spyglass_flashlight.json` with
 `{"item_id": "minecraft:spyglass", "light_level": 14, "shape": "spot", "cone_degrees": 35, "range": 32, "color": "#FFF2CC"}` makes a held
@@ -60,6 +61,7 @@ Mobility's karts carry headlights of their own through Camafy's dynamic light AP
 *   **`transmission`** (`voxel`, `off`): how dynamic light passes through blocks on the shader path (Colorful Lighting 2.9.0): `voxel` propagates each light through a 96-block cube of the blocks round the camera as a placed lamp's light spreads, stopped by walls, tinted by stained glass, round corners, ships' blocks included; `off` lets it through everything, as other dynamic lighting mods do.
 *   **`draw_without_server`** (true): on a server without Lively Lighting this client draws the light it can see.
 *   **`frames_on_ships_are_headlights`** (true): a lit item in an item frame on a Valkyrien Skies ship is a headlight along the frame's facing, turned with the ship.
+*   **`lit_carriers`** (true): an entity carrying a light that asks to be lit by it (Camafy's `LightSource.glow`: a kart under its headlights), and whoever rides it, is drawn at least that bright, with nothing round it lit.
 *   **`world_light`** (true): the world's own light on this client answers the drawn dynamic light too, for mods that read how bright the player's place is (Stellar View's light pollution). The meshes and Colorful Lighting's samples don't read it.
 
 With Embeddium these keys are also a **Lively Lighting page in the video settings**; a change there is written to `livelylighting.json` and takes effect at once.

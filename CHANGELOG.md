@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.6.2 — Unreleased
+
+### Added
+
+- **A light's carrier drawn lit by it** (`client.lit_carriers`, on; Camafy 0.1.85's `LightSource.glow`): an entity that carries a light
+  asking for it, and whoever rides it, is drawn at least that bright, with nothing round it lit. MKW Mobility 0.1.4's karts ask for it
+  under their headlights, which point away from the kart.
+- **Definitions keyed to NBT**: an item definition with `"nbt": {...}` applies only to stacks whose tag holds those values (a flashlight
+  a script switches on and off), matched when the stack is looked up; a definition without `nbt` applies to every stack of the item.
+
+### Changed
+
+- With Colorful Lighting 2.10.0 the light is the smooth analytic light again at every point, moving with its source every frame, scaled
+  by where the blocks let it go (per light: 1 in the open, less round a corner, 0 behind a wall): 2.9.x's field interpolated summed levels
+  per cell, which stepped and flickered as a light moved. A spot light no longer lights two blocks round itself (`DynamicLights.lightAt`
+  agrees): that put a blob of light on the ground round a kart and on a flashlight's holder.
+
 ## 0.6.1 — Unreleased
 
 ### Added

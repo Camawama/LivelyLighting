@@ -171,8 +171,31 @@ public final class ClientLightEngine {
         };
         // the reach follows the faded level for a point; a spot keeps its range and dims
         float range = src.range() > 0f ? src.range() : src.isSpot() ? 32f : lvl;
+        // the carrier's glow fades with the light
+        float glow = src.glows() && src.level() > 0f ? src.glowLevel() * Math.min(1f, lvl / src.level()) : 0f;
         out.add(new DynamicLight(key, DynamicLight.Kind.API, mover, dir, lvl, src.rgb(), src.isSpot() ? LightShape.SPOT : LightShape.POINT,
-                src.isSpot() ? src.outerDegrees() : 0f, Math.max(1f, range), falloff));
+                src.isSpot() ? src.outerDegrees() : 0f, Math.max(1f, range), falloff, glow > 0f ? src.glowEntity() : -1, glow));
+    }
+
+    /**
+     * How bright an entity is drawn at least by the lights it carries that ask for it (0.6.2; Camafy's {@code LightSource.glow}),
+     * and whoever rides such an entity with it; 0 for none. Render thread, per entity drawn.
+     */
+    public int glowOf(Entity entity) {
+        List<DynamicLight> ls = lights;
+        if (ls.isEmpty()) return 0;
+        int id = entity.getId();
+        float best = 0f;
+        for (DynamicLight l : ls) {
+            if (l.glowEntity < 0 || l.glowLevel <= best) continue;
+            if (l.glowEntity == id || rides(entity, l.glowEntity)) best = l.glowLevel;
+        }
+        return Math.round(best);
+    }
+
+    private static boolean rides(Entity entity, int vehicleId) {
+        for (Entity v = entity.getVehicle(); v != null; v = v.getVehicle()) if (v.getId() == vehicleId) return true;
+        return false;
     }
 
     /** The API lights at a moment of the frame, collected once per frame (1 = the tick's own positions). */

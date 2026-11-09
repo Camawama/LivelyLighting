@@ -84,10 +84,15 @@ public class LightCalculator {
 
     /** Every exact-id item definition by its id, resolved when the item is looked up: an item registered after the definitions were read (a KubeJS item) still finds its definition (0.6.1). */
     private static final Map<ResourceLocation, LightData> itemsById = new java.util.concurrent.ConcurrentHashMap<>();
+    /** Definitions that apply only to stacks whose tag holds given values ({@code "nbt": {...}} in the file), by item id, in file order (0.6.2). */
+    private static final Map<ResourceLocation, List<NbtLightData>> nbtItems = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private record NbtLightData(net.minecraft.nbt.CompoundTag required, LightData data) {}
 
     public static void reloadConfig() {
         itemCache.clear();
         itemsById.clear();
+        nbtItems.clear();
         regexItems.clear();
         entityCache.clear();
         regexEntities.clear();
@@ -159,6 +164,12 @@ public class LightCalculator {
                     regexItems.add(new RegexLightData(Pattern.compile(patternStr), data));
                 } else {
                     ResourceLocation key = new ResourceLocation(id);
+                    if (json.has("nbt") && json.get("nbt").isJsonObject()) {
+                        // applies only to stacks whose tag holds these values (a flashlight a script switches on): matched when the stack is looked up
+                        net.minecraft.nbt.CompoundTag required = net.minecraft.nbt.TagParser.parseTag(json.get("nbt").toString());
+                        nbtItems.computeIfAbsent(key, k -> new CopyOnWriteArrayList<>()).add(new NbtLightData(required, data));
+                        continue;
+                    }
                     itemsById.put(key, data);
                     Item item = ForgeRegistries.ITEMS.getValue(key);
                     if (item != null && item != Items.AIR) {
@@ -397,9 +408,24 @@ public class LightCalculator {
     /** The definition an item has, with no holder in play (no water or suffocation): for the API and for tooltips. */
     public static LightData definitionOf(ItemStack stack, LivelyConfig config) {
         if (stack.isEmpty() || stack.getItem() == Items.LIGHT) return EMPTY_LIGHT_DATA;
-        LightData data = lookupItem(stack.getItem(), config);
+        LightData data = lookupStack(stack, config);
         if (data.level > 0) return data;
         return config.enchanted_items_glow && stack.isEnchanted() ? ENCHANTED_LIGHT_DATA : EMPTY_LIGHT_DATA;
+    }
+
+    /** The definition for a stack: one keyed to its NBT first (0.6.2), else the item's. */
+    private static LightData lookupStack(ItemStack stack, LivelyConfig config) {
+        if (!nbtItems.isEmpty()) {
+            ResourceLocation key = ForgeRegistries.ITEMS.getKey(stack.getItem());
+            List<NbtLightData> defs = key == null ? null : nbtItems.get(key);
+            if (defs != null) {
+                net.minecraft.nbt.CompoundTag tag = stack.getTag();
+                for (NbtLightData def : defs) {
+                    if (net.minecraft.nbt.NbtUtils.compareNbt(def.required, tag, true)) return def.data;
+                }
+            }
+        }
+        return lookupItem(stack.getItem(), config);
     }
 
     private static LightData lookupItem(Item item, LivelyConfig config) {
@@ -443,7 +469,7 @@ public class LightCalculator {
         // back at their eyes, and a purge "came back" the next tick. Hard-coded on top of
         // auto_detect_blacklist, which a config file written before that default was added lacks.
         if (item == Items.LIGHT) return EMPTY_LIGHT_DATA;
-        LightData data = lookupItem(item, config);
+        LightData data = lookupStack(stack, config);
 
         if (data.level > 0) {
             // Suffocation only matters for stacks that would actually emit

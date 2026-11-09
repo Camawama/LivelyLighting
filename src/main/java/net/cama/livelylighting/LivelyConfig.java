@@ -193,6 +193,10 @@ public class LivelyConfig {
         // A lit item in an item frame on a Valkyrien Skies ship is a headlight (0.6.1): a cone along the frame's facing, turned
         // with the ship, the default cone and reach; off, it is the point light it is on the ground.
         public boolean frames_on_ships_are_headlights = true;
+        // An entity carrying a light that asks to be lit by it (0.6.2; Camafy's LightSource.glow: a kart under its headlights,
+        // which point away from it) is drawn at least that bright, and whoever rides it with it, with nothing round it lit. Off:
+        // carriers are lit only by what reaches them.
+        public boolean lit_carriers = true;
         // Shader renderer: how dynamic light passes through blocks. "voxel" (Colorful Lighting 2.9.0) propagates each light
         // through a 96-block cube of the blocks round the camera the way a placed lamp's light spreads: a level lost per
         // block along the path, stopped by walls, tinted by stained glass, round corners, with ships' blocks included; the
