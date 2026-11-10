@@ -154,7 +154,7 @@ public final class ClientLightEngine {
         // a new light waits dark for the slab that keeps it behind walls (0.6.4)
         hold(config, out);
         // the ships' blocks for the volume the light is propagated through (Colorful Lighting's worker reads the snapshot)
-        ShipBlocks.snapshot(level, shipLamps);
+        ShipBlocks.snapshot(level, shipLamps, out);
         // fades that were not wanted this tick run out
         fades.entrySet().removeIf(e -> tick - e.getValue().lastSeen > 1200);
         lights = Collections.unmodifiableList(out);

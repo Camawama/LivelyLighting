@@ -126,13 +126,38 @@ final class ColorfulBridge {
             MethodHandle set = lookup.findVirtual(writerType, "set", MethodType.methodType(void.class, int.class, int.class, int.class,
                     net.minecraft.world.level.block.state.BlockState.class, net.minecraft.core.BlockPos.class));
             MethodHandle register = lookup.findStatic(compat, "setExternalBlockFiller", MethodType.methodType(void.class, fillerType));
+            MethodHandle found;
+            try {
+                found = lookup.findVirtual(writerType, "cover", MethodType.methodType(boolean.class, int.class, int.class, int.class,
+                        net.minecraft.world.level.block.state.BlockState.class, net.minecraft.core.BlockPos.class, float.class));
+            } catch (ReflectiveOperationException e) {
+                found = null; // before 2.10.5: a ship's glass is whole cells, and its colour moves a block at a time
+            }
+            MethodHandle cover = found;
             Object filler = Proxy.newProxyInstance(fillerType.getClassLoader(), new Class<?>[]{fillerType}, (proxy, method, args) -> {
                 if (method.getName().equals("fill") && args != null && args.length == 6) {
                     Object writer = args[5];
-                    ShipBlocks.fill((ClientLevel) args[0], (Integer) args[1], (Integer) args[2], (Integer) args[3], (Integer) args[4], (x, y, z, state, pos) -> {
-                        try {
-                            set.invoke(writer, x, y, z, state, pos);
-                        } catch (Throwable ignored) {
+                    ShipBlocks.fill((ClientLevel) args[0], (Integer) args[1], (Integer) args[2], (Integer) args[3], (Integer) args[4], new ShipBlocks.Writer() {
+                        @Override
+                        public void set(int x, int y, int z, net.minecraft.world.level.block.state.BlockState state, net.minecraft.core.BlockPos pos) {
+                            try {
+                                set.invoke(writer, x, y, z, state, pos);
+                            } catch (Throwable ignored) {
+                            }
+                        }
+
+                        @Override
+                        public boolean covers() {
+                            return cover != null;
+                        }
+
+                        @Override
+                        public boolean cover(int x, int y, int z, net.minecraft.world.level.block.state.BlockState state, net.minecraft.core.BlockPos pos, float share) {
+                            try {
+                                return (boolean) cover.invoke(writer, x, y, z, state, pos, share);
+                            } catch (Throwable t) {
+                                return false;
+                            }
                         }
                     });
                     return null;
@@ -221,6 +246,7 @@ final class ColorfulBridge {
      * Lighting 2.10.4), sent when it changes.
      */
     static void setUpdateInterval(int ticks) {
+        ShipBlocks.pathInterval(ticks);
         if (setUpdateInterval == null || ticks == sentInterval) return;
         try {
             setUpdateInterval.invoke(ticks);

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.7 — Unreleased
+
+### Fixed
+
+- **The colour behind a ship's stained glass moves with the ship** (Valkyrien Skies; needs Colorful Lighting 2.10.5). With
+  a ship of coloured glass flown past a standing dynamic light, the tinted light behind it stood still and then leapt.
+  Two causes. The volume the light is propagated through took a ship's blocks afresh only every ten ticks unless the ship
+  carried lamps; a ship with blocks that tint light, within reach of a dynamic light, now has it rebuilt as it moves, a
+  fiftieth of a block at a time and as often as `client.light_path_update_ticks` allows
+  (`-Dlivelylighting.shipGlassRebuilds=false` for the way before). And a ship's block was written to whole cells of that
+  volume, so the colour moved a block at a time however slowly the ship went; a block that tints light is now written by
+  the share of each cell it takes up, exact for a ship along the world's axes and counted over 32 points a cell for a
+  turned one (`-Dlivelylighting.shipBlockCoverage=false`, which also ends the rebuilds: which ships tint light is learnt
+  from the shares). Blocks that stop light are whole cells as before: the shadow of a moving ship's hull from a standing
+  light still moves a block at a time. Harness `ll_r9_shipglass`: flown at 2 blocks a second the red light behind the glass
+  moved in every judged tick with a largest step of 2.4 times its mean (before: 10.2 times, standing for 7 ticks); at 0.6
+  blocks a second 2.6 times (14.1), and turning as it went 4.2 times with no stand over 3 ticks (14.1, standing for 12).
+
 ## 0.6.6 — Unreleased
 
 ### Added
