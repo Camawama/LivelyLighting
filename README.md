@@ -68,12 +68,13 @@ Mobility's karts carry headlights of their own through Camafy's dynamic light AP
 *   **`cluster_lamps`** (true): lamps on ships and contraptions, a burning ship's fire among them, join a merged light that has a carried light in it and count as the carried lights do. Lamps alone never merge. Off: lamps stay out of merged lights.
 *   **`max_merged_lights`** (12, 1 to 16): merged lights drawn at once, the nearest the camera first. A nearer group takes the place of the farthest merged light, which eases out first. Colorful Lighting 2.10.2 keeps sixteen slabs for lights that reach beyond 15 blocks; an older one keeps four, and merged lights beyond those are drawn without walls stopping them.
 *   **`hold_new_lights`** (true): on the shader renderer a new light stays dark until Colorful Lighting has worked out where its light may go, six ticks at most, and is then let up over two. Off: a new light shows at once and can shine through a wall for a tick or two.
+*   **`light_path_update_ticks`** (1, 1 to 10): on the shader renderer with `voxel` transmission, the fewest ticks between two updates of where one moving light's light may go (Colorful Lighting 2.10.4). At 1 a light's shadows and the colour it takes behind stained glass follow it every tick; at more they follow that many ticks apart, while the light itself still moves every frame. Higher values spare the background thread that works the paths out when many lights move at once (64 moving lights: 95% of a core at 1, 34% at 4, 15% at 10) without a change in the frame rate on a processor with cores to spare.
 *   **`world_light`** (true): the world's own light on this client answers the drawn dynamic light too, for mods that read how bright the player's place is (Stellar View's light pollution). The meshes and Colorful Lighting's samples don't read it.
 
 With Embeddium these keys are also a **Lively Lighting page in the video settings**; a change there is written to `livelylighting.json` and takes effect at once.
 *   **`lightmap_propagate`** (true): on the lightmap path a point light is a lamp Colorful Lighting's engine propagates: stopped by walls, tinted by glass, read by shader packs as block light.
 
-Overrides for a run: `-Dlivelylighting.mode=server_blocks|client|hybrid` (the server), `-Dlivelylighting.clientRenderer=...`, `-Dlivelylighting.clientTransmission=off` (the shader path's transmission march off, for an A/B) and
+Overrides for a run: `-Dlivelylighting.mode=server_blocks|client|hybrid` (the server), `-Dlivelylighting.clientRenderer=...`, `-Dlivelylighting.clientTransmission=off` (the shader path's transmission march off, for an A/B), `-Dlivelylighting.lightPathUpdateTicks=N` (`light_path_update_ticks` for a run) and
 `-Dlivelylighting.clientMode=client` (a client draws even where the server places blocks).
 
 ## Other mods' lights

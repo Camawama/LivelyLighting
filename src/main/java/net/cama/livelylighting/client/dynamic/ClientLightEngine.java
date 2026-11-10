@@ -360,12 +360,76 @@ public final class ClientLightEngine {
 
     /** The dynamic light (0 to 15) this client's lights give a world position, for Camafy's DynamicLights.lightAt. */
     public float levelAt(Vec3 pos) {
+        List<DynamicLight> all = lights;
         double best = 0;
-        for (DynamicLight light : lights) {
+        if (all.size() >= INDEX_FROM) {
+            // many lights: only the ones whose reach touches this 16-block column (0.6.6)
+            Columns columns = index;
+            if (columns == null || columns.of != all) index = columns = new Columns(all);
+            DynamicLight[] near = columns.at(pos.x, pos.z);
+            if (near != null) {
+                for (DynamicLight light : near) {
+                    double l = light.levelAt(pos.x, pos.y, pos.z);
+                    if (l > best) best = l;
+                }
+            }
+            for (DynamicLight light : columns.wide) {
+                double l = light.levelAt(pos.x, pos.y, pos.z);
+                if (l > best) best = l;
+            }
+            return (float) Math.min(15, best);
+        }
+        for (DynamicLight light : all) {
             double l = light.levelAt(pos.x, pos.y, pos.z);
             if (l > best) best = l;
         }
         return (float) Math.min(15, best);
+    }
+
+    /**
+     * From this many lights on, {@link #levelAt} looks the lights up by column (0.6.6): the game asks the client's raw
+     * brightness some hundreds of times a frame, and every question went through every light (a tenth of the render thread
+     * with 256 lights). {@code -Dlivelylighting.lightIndexFrom=100000} for the way before.
+     */
+    private static final int INDEX_FROM = Math.max(1, Integer.getInteger("livelylighting.lightIndexFrom", 24));
+    private volatile Columns index;
+
+    /** The lights of one tick by the 16-block columns their reach touches; built at the tick's first question. */
+    private static final class Columns {
+        final List<DynamicLight> of;
+        /** Lights that reach further than 128 blocks: asked every time. */
+        final List<DynamicLight> wide = new ArrayList<>(0);
+        private final it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<DynamicLight[]> cells = new it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<>();
+
+        Columns(List<DynamicLight> lights) {
+            of = lights;
+            it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<List<DynamicLight>> lists = new it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<>();
+            for (DynamicLight light : lights) {
+                double reach = Math.max(0.0, light.range);
+                if (!(reach <= 128.0)) {
+                    wide.add(light);
+                    continue;
+                }
+                int x0 = cell(light.pos.x - reach), x1 = cell(light.pos.x + reach), z0 = cell(light.pos.z - reach), z1 = cell(light.pos.z + reach);
+                for (int x = x0; x <= x1; x++) {
+                    for (int z = z0; z <= z1; z++) lists.computeIfAbsent(key(x, z), k -> new ArrayList<>(4)).add(light);
+                }
+            }
+            for (var e : lists.long2ObjectEntrySet()) cells.put(e.getLongKey(), e.getValue().toArray(new DynamicLight[0]));
+        }
+
+        @Nullable
+        DynamicLight[] at(double x, double z) {
+            return cells.get(key(cell(x), cell(z)));
+        }
+
+        private static int cell(double v) {
+            return (int) Math.floor(v) >> 4;
+        }
+
+        private static long key(int x, int z) {
+            return ((long) x << 32) | (z & 0xFFFFFFFFL);
+        }
     }
 
     private static boolean shouldCheck(Entity entity, LivelyConfig config) {

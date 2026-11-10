@@ -23,11 +23,11 @@ final class ColorfulBridge {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static boolean registered;
     private static MethodHandle point, spot, setMeshLighting, shaderAvailable, setLimits, setBudget, setTransmission, setPropagation;
-    private static MethodHandle fieldEnabled, fieldHolds, blocksMoved;
+    private static MethodHandle fieldEnabled, fieldHolds, blocksMoved, setUpdateInterval;
     /** Whether Colorful Lighting was last told to bake the lights into meshes (then no light has a slab). */
     private static boolean meshLighting = true;
     private static Boolean sentTransmission, sentPropagation;
-    private static int sentLights = -1, sentBudget = -1;
+    private static int sentLights = -1, sentBudget = -1, sentInterval = -1;
     private static float sentDistance = -1f;
 
     private ColorfulBridge() {}
@@ -83,6 +83,12 @@ final class ColorfulBridge {
                 fieldHolds = lookup.findStatic(field, "holds", MethodType.methodType(boolean.class, long.class));
             } catch (ReflectiveOperationException e) {
                 fieldEnabled = fieldHolds = null;
+            }
+            try {
+                Class<?> field = Class.forName("net.camacraft.colorfullighting.compat.dynamiclights.DynamicLightField");
+                setUpdateInterval = lookup.findStatic(field, "setUpdateInterval", MethodType.methodType(void.class, int.class));
+            } catch (ReflectiveOperationException e) {
+                setUpdateInterval = null; // before 2.10.4: a slab follows its light every tick
             }
             Object provider = Proxy.newProxyInstance(providerType.getClassLoader(), new Class<?>[]{providerType}, (proxy, method, args) -> {
                 if (method.getName().equals("collect") && args != null && args.length == 3) {
@@ -206,6 +212,19 @@ final class ColorfulBridge {
         try {
             setTransmission.invoke(on);
             sentTransmission = on;
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * The fewest ticks between two updates of where one moving light's light may go (client.light_path_update_ticks, Colorful
+     * Lighting 2.10.4), sent when it changes.
+     */
+    static void setUpdateInterval(int ticks) {
+        if (setUpdateInterval == null || ticks == sentInterval) return;
+        try {
+            setUpdateInterval.invoke(ticks);
+            sentInterval = ticks;
         } catch (Throwable ignored) {
         }
     }

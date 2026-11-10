@@ -230,6 +230,13 @@ public class LivelyConfig {
         // block along the path, stopped by walls, tinted by stained glass, round corners, with ships' blocks included; the
         // look of Minecraft's own light. "off" lets light through everything, as other dynamic lighting mods do.
         public String transmission = "voxel";
+        // Shader renderer with "voxel" transmission: the fewest ticks between two updates of where one moving light's light
+        // may go, 1 to 10 (0.6.6, Colorful Lighting 2.10.4). At 1 a light's shadows and the colour it takes behind stained
+        // glass follow it every tick. At more they follow that many ticks apart (at 4, a walking torch's shadows trail it by
+        // up to a block and the colour behind glass moves in steps); the light itself, its place and its falloff, still
+        // moves every frame. Higher values spare the background thread that works the paths out and the uploads of their
+        // textures when many lights move at once.
+        public int light_path_update_ticks = 1;
         // Lightmap renderer with Colorful Lighting: point lights are propagated by its engine as lamps of their colour, so
         // their light stops at walls as a block's does and shader packs read it as block light. Off: a straight-line light
         // through walls, cheaper when many lights move.

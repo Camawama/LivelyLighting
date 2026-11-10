@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.6.6 — Unreleased
+
+### Added
+
+- **`client.light_path_update_ticks`** (1, 1 to 10; needs Colorful Lighting 2.10.4; "Light Path Update Interval" on the
+  Embeddium page; `-Dlivelylighting.lightPathUpdateTicks` for a run). The fewest ticks between two updates of where one
+  moving light's light may go, on the shader renderer with `voxel` transmission. At 1, as before, a light's shadows and the
+  colour it takes behind stained glass follow it every tick. At more they follow that many ticks apart: at 4 a walking
+  torch's shadows trail it by up to a block and the colour behind glass moves in steps. The light itself, its place and its
+  falloff, still moves every frame, and a new light's first paths never wait. Higher values spare the background thread that
+  works the paths out and the uploads of their textures when many lights move at once: with 64 lights moving, that thread
+  took 95% of a core at 1, 34% at 4 and 15% at 10, and the uploads 2.6%, 0.9% and 0.4% of the render thread (harness
+  `ll_stress`). The frame rate was the same within the measure's noise at every value, so this is a setting for a processor
+  with few cores.
+
+### Changed
+
+- **How much dynamic light reaches a place is looked up by column from 24 lights on** (`-Dlivelylighting.lightIndexFrom`
+  for another count). The game asks the client's raw brightness many times a frame (`client.world_light`), and every
+  question went through every light: a tenth of the render thread with 256 lights. With 256 lights standing the frame rate
+  went from 0.91 to 0.96 of the rate without any, with 256 moving from 0.83 to 0.90.
+
 ## 0.6.5 — Unreleased
 
 ### Changed
