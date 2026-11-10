@@ -122,6 +122,7 @@ final class ClientClusters {
     private static boolean merges(DynamicLight light) {
         if (light.isSpot() || light.level <= 0f) return false;
         if (light.range < light.level - 0.01f) return false; // a light cut short on purpose
+        if (light.stretch != 1f) return false; // a lamp on a ship at another size keeps its own reach
         return light.kind != DynamicLight.Kind.CLUSTER;
     }
 

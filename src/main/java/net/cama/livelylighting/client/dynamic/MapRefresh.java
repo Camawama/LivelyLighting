@@ -128,7 +128,7 @@ public final class MapRefresh {
             z0 = Math.min(p.z - 1, ez - spread);
             z1 = Math.max(p.z + 1, ez + spread);
         } else {
-            double reach = Math.min(light.range, light.level) + 1;
+            double reach = light.reach() + 1;
             x0 = p.x - reach;
             x1 = p.x + reach;
             z0 = p.z - reach;

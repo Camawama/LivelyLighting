@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.6.8 — Unreleased
+
+### Added
+
+- **A lamp on a scaled ship reaches as far as its ship is scaled** (Valkyrien Skies; the client module needs Colorful
+  Lighting 2.10.6). A lamp on a ship drawn at another size lit the same 15 blocks of the world as on a ship at its own
+  size: a small model's lanterns flooded the room, a large ship's lit a patch of its own deck. The client module now
+  stretches such a lamp's falloff by the ship's scale, as bright at the lamp either way: a glowstone on a ship at half its
+  size reaches 7.5 blocks, at one and a half 22.5. A point lamp on an enlarged ship reaches at most
+  `client.scaled_lamp_max_reach` blocks (24, 15 to 48), a beam at most 48: the volumes a light's paths are kept in. A lit
+  item in a frame on the ship is one of its lamps here. The server module's light blocks lose a level per block whatever
+  is asked, so there the block's level goes with the scale: a lamp on a ship at half its size is a block of level 8, and a
+  ship larger than its own size gains nothing (level 15 is the most a block gives). `lamps_scale_with_ships` (true;
+  `-Dlivelylighting.lampsScaleWithShips=false` for a run) is the switch, read by the server module from the server's file
+  and by the client module from the client's. Not scaled: fire on a ship and Create's contraptions. Where Colorful Lighting
+  propagates the lights through its light engine instead of its shaders, a lamp keeps a level per block at every size.
+  Harness `ll_r9_scale`: against the same ship at its own size the lit floor reached 0.50 times as far at half size, 1.50
+  at one and a half and 1.57 at twice the size (the 24-block limit gives 1.6), with the brightness beside the lamp 0.98,
+  1.01 and 0.88 of the full-size ship's; with the switch off 1.04, 0.99 and 1.00; in `server_blocks` mode the block light
+  at the lamp was 15, 8, 15 and 15.
+
+### Documentation
+
+- The README says who decides the lighting mode: `lighting_mode` is read by the server alone (in singleplayer and on a LAN
+  world the host is the server), the mod's one channel only sends from the server to the clients, and the commands that
+  change the mode need permission level 2. A client can only choose whether it draws its own lights.
+
 ## 0.6.7 — Unreleased
 
 ### Fixed

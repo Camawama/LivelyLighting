@@ -31,6 +31,13 @@ clients with the mod draw, clients without see no dynamic light) or `hybrid` (de
 player whose client has no Lively Lighting can see them, and clients with the mod draw their own). The server tells every client
 the mode on login; a server without 0.5.0 counts as `server_blocks`.
 
+Only the server decides whether light blocks are placed. On a dedicated server the mode comes from the server's own file, from
+`-Dlivelylighting.mode` on the server's JVM or from an operator's `/ll config lighting_mode ...`; the mod's channel carries
+nothing from a client to the server, so a client's own `lighting_mode` is never read there and no player can make the server
+place blocks. In `hybrid` the server places blocks for the players whose clients lack the mod: a server that must never place
+any runs `client` (and can require the mod of its clients with Camafy's `[clientMods] required`). In singleplayer and on a LAN
+world the host's game is the server, and its file is the one read.
+
 ## Light shapes, colour and definitions
 
 A definition (item, entity or block) may give its light a `shape`: `point` (all round, vanilla's light) or `spot` (a cone: a
@@ -60,6 +67,7 @@ Mobility's karts carry headlights of their own through Camafy's dynamic light AP
 *   **`spot_beams`** (false), **`spot_beam_opacity`** (0.06): a faint additive cone in the air along every spot light, and how visible it is at the light.
 *   **`transmission`** (`voxel`, `off`): how dynamic light passes through blocks on the shader path (Colorful Lighting 2.9.0): `voxel` propagates each light through a 96-block cube of the blocks round the camera as a placed lamp's light spreads, stopped by walls, tinted by stained glass, round corners, ships' blocks included; `off` lets it through everything, as other dynamic lighting mods do.
 *   **`draw_without_server`** (true): on a server without Lively Lighting this client draws the light it can see.
+*   **`scaled_lamp_max_reach`** (24, 15 to 48): with `lamps_scale_with_ships`, the furthest in blocks an enlarged ship's lamp reaches on the shader renderer (a full-size lamp reaches 15). A lamp reaching past 15 blocks takes one of the 16 light paths of that reach, past 24 one of 4 (Colorful Lighting's slab classes); the lights beyond those shine through walls.
 *   **`frames_on_ships_are_headlights`** (true): a lit item in an item frame on a Valkyrien Skies ship is a headlight along the frame's facing, turned with the ship.
 *   **`lit_carriers`** (true): an entity carrying a light that asks to be lit by it (Camafy's `LightSource.glow`: a kart under its headlights), and whoever rides it, is drawn at least that bright, with nothing round it lit.
 *   **`spot_holder_glow`** (6, 0 to 15, 0 for off): whoever holds a spot light (a flashlight) is drawn at least this bright in its colour, with nothing round them lit. The beam itself never lights its holder: it starts at them and points away. Needs `lit_carriers` and Colorful Lighting 2.10.3.
@@ -74,7 +82,7 @@ Mobility's karts carry headlights of their own through Camafy's dynamic light AP
 With Embeddium these keys are also a **Lively Lighting page in the video settings**; a change there is written to `livelylighting.json` and takes effect at once.
 *   **`lightmap_propagate`** (true): on the lightmap path a point light is a lamp Colorful Lighting's engine propagates: stopped by walls, tinted by glass, read by shader packs as block light.
 
-Overrides for a run: `-Dlivelylighting.mode=server_blocks|client|hybrid` (the server), `-Dlivelylighting.clientRenderer=...`, `-Dlivelylighting.clientTransmission=off` (the shader path's transmission march off, for an A/B), `-Dlivelylighting.lightPathUpdateTicks=N` (`light_path_update_ticks` for a run) and
+Overrides for a run: `-Dlivelylighting.mode=server_blocks|client|hybrid` (the server), `-Dlivelylighting.clientRenderer=...`, `-Dlivelylighting.clientTransmission=off` (the shader path's transmission march off, for an A/B), `-Dlivelylighting.lightPathUpdateTicks=N` (`light_path_update_ticks` for a run), `-Dlivelylighting.lampsScaleWithShips=false` (`lamps_scale_with_ships` for a run) and
 `-Dlivelylighting.clientMode=client` (a client draws even where the server places blocks).
 
 ## Other mods' lights
@@ -91,6 +99,15 @@ With `vs_support`, a Valkyrien Skies ship's lamps light the world as it moves (t
 lamps and other ships' lamps light the ship, an entity on a ship lights the world; a Create contraption's lamps do the same
 (Create is optional). In the client module the lamps follow the ship's render pose and the contraption's render transform every
 frame; a headlight block on either is a spot light along its facing.
+
+A ship built or set to another size carries lamps of that size (`lamps_scale_with_ships`, 0.6.8; the client module needs
+Colorful Lighting 2.10.6 for it): at half size a lamp reaches half as far, at twice the size twice as far, up to
+`client.scaled_lamp_max_reach` blocks, and is as bright at the lamp as ever. A headlight's range is scaled and its cone is
+kept, to 48 blocks at most. The server's light blocks take the level times the scale, rounded, from 1 to 15: a light block
+can't reach past 15 blocks, so in `server_blocks` mode a shrunk ship's lamps shrink and an enlarged ship's stay as they are.
+In the client module a lit item in an item frame on a ship is scaled the same way. A ship's fires and a Create contraption's
+lamps aren't scaled, and where Colorful Lighting propagates the light without its shaders the light loses a level a block
+at every size.
 
 ## Configuration
 
@@ -125,6 +142,7 @@ This structure allows for easy management of custom light sources without clutte
 *   **`auto_detect_block_light`** (Boolean): If enabled, the mod automatically detects items that are blocks and emit light (e.g., modded lamps) and assigns them a dynamic light level. Default: `true`.
 *   **`auto_detect_blacklist`** (List<String>): A list of item IDs to exclude from auto-detection (e.g., `minecraft:light`).
 *   **`vs_support`** (Boolean): Experimental Valkyrien Skies support. Default: `false`.
+*   **`lamps_scale_with_ships`** (Boolean): With `vs_support`: a ship's lamps reach as far as the ship's Valkyrien Skies scale says (see "Moving structures"). Read by the server for its light blocks and by each client for the light it draws. Default: `true`.
 *   **`max_lamps_per_ship`** (Integer): With `vs_support`: at most this many of a ship's own lamps are projected into the world as it moves, the brightest first, then the nearest a player (chosen again with the ship's lamp scan every three seconds); the rest give the world no light. Each projected lamp is a light block moving with the ship, a block change and a light update on every client per cell it crosses. `0` = no cap. Default: `32`.
 *   **`small_ship_updates_per_tick`** (Integer): With `vs_support`: when more small ships than this need their light changed in the same engine run (a torch carried past hundreds of one-block ships), only this many are updated, the ones whose light is most wrong and nearest a player first, each in one step; the others keep the light they have until their turn. Lights in the world and on larger ships are never deferred. `0` = no limit. Default: `6`.
 *   **`small_ship_max_blocks`** (Integer): What counts as a small ship for the setting above: the volume of the box its blocks fill. Default: `8`.

@@ -49,6 +49,11 @@ public final class DynamicLight {
     public final int glowEntity;
     /** How bright the carrier is drawn at least (0 to 15), after fades. */
     public final float glowLevel;
+    /**
+     * Blocks a point light loses a level over (0.6.8): 1 for every light but a lamp on a ship drawn at another size, which
+     * is as bright at the lamp and reaches {@code level * stretch} blocks. A beam's reach is its {@link #range}.
+     */
+    public final float stretch;
 
     public DynamicLight(long ownerKey, Kind kind, Mover mover, @Nullable Mover direction, float level, int rgb, LightShape shape,
                         float outerDegrees, float range, Falloff falloff) {
@@ -62,6 +67,12 @@ public final class DynamicLight {
 
     public DynamicLight(long ownerKey, Kind kind, Mover mover, @Nullable Mover direction, float level, int rgb, LightShape shape,
                         float outerDegrees, float range, Falloff falloff, int glowEntity, float glowLevel, @Nullable FrameLevel frameLevel) {
+        this(ownerKey, kind, mover, direction, level, rgb, shape, outerDegrees, range, falloff, glowEntity, glowLevel, frameLevel, 1f);
+    }
+
+    public DynamicLight(long ownerKey, Kind kind, Mover mover, @Nullable Mover direction, float level, int rgb, LightShape shape,
+                        float outerDegrees, float range, Falloff falloff, int glowEntity, float glowLevel, @Nullable FrameLevel frameLevel,
+                        float stretch) {
         this.ownerKey = ownerKey;
         this.kind = kind;
         this.mover = mover;
@@ -76,12 +87,18 @@ public final class DynamicLight {
         this.glowEntity = glowEntity;
         this.glowLevel = glowLevel;
         this.frameLevel = frameLevel;
+        this.stretch = stretch > 0f && !Float.isInfinite(stretch) ? stretch : 1f;
     }
 
     /** This light at another level (its level between ticks with it, and its carrier's glow), everything else kept. */
     public DynamicLight withLevel(float level, @Nullable FrameLevel frameLevel, float glowLevel) {
         return new DynamicLight(ownerKey, kind, mover, direction, level, rgb, shape, outerDegrees, range, falloff,
-                glowLevel > 0f ? glowEntity : -1, glowLevel, frameLevel);
+                glowLevel > 0f ? glowEntity : -1, glowLevel, frameLevel, stretch);
+    }
+
+    /** How far the light reaches at this tick's level: a beam its range, a point light its level by its stretch, within its range. */
+    public float reach() {
+        return isSpot() ? range : Math.min(range, level * stretch);
     }
 
     /** The level at a moment of the frame (1 = the tick's own). */
@@ -116,7 +133,7 @@ public final class DynamicLight {
             // a beam dims with the distance along it over its range, not per block as a point light does
             l = level * (1.0 - d / range) * cone;
         } else {
-            l = falloff.levelAt(level, dx, dy, dz);
+            l = stretch == 1f ? falloff.levelAt(level, dx, dy, dz) : falloff.levelAt(level, dx / stretch, dy / stretch, dz / stretch);
         }
         return Math.max(0, l);
     }

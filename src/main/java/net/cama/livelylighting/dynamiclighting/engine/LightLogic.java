@@ -516,13 +516,16 @@ public class LightLogic {
                     shipEmitterScanTime.put(shipId, level.getGameTime());
                 }
 
+                // a ship at another size: a light block loses a level per block whatever is asked, so the lamp's level
+                // goes with the scale instead of its falloff (0.6.8, lamps_scale_with_ships)
+                double lampScale = net.cama.livelylighting.source.ShipLampScale.of(ship, config);
                 for (Map.Entry<BlockPos, Integer> emitter : emitters.entrySet()) {
                     if (sourceCount >= maxSources) break;
                     sourceCount++;
 
                     BlockPos shipPos = emitter.getKey();
                     if (ownPlacedLights.contains(shipPos)) continue;
-                    int emission = emitter.getValue();
+                    int emission = net.cama.livelylighting.source.ShipLampScale.blockLevel(emitter.getValue(), lampScale);
                     Vec3 worldPos = ship.toWorld(Vec3.atCenterOf(shipPos));
                     if (worldPos == null) continue; // ship gone since the intersect query
 

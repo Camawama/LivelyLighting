@@ -4,6 +4,7 @@ import net.cama.livelylighting.LivelyConfig;
 import net.cama.livelylighting.source.BlockLightDefs;
 import net.cama.livelylighting.source.Falloff;
 import net.cama.livelylighting.source.LightShape;
+import net.cama.livelylighting.source.ShipLampScale;
 import net.camacraft.camafy.compat.vs.ShipRef;
 import net.camacraft.camafy.compat.vs.Ships;
 import net.minecraft.client.multiplayer.ClientLevel;
@@ -85,12 +86,15 @@ final class ShipLamps {
                 scans.put(ship.id(), scan);
             }
             List<Lamp> kept = cap(ship, scan.lamps, camera, config.max_lamps_per_ship);
+            // a ship drawn at another size: its lamps reach as far as it is scaled (0.6.8)
+            double scale = ShipLampScale.of(ship, config);
+            float maxReach = Math.max(15, Math.min(48, config.client.scaled_lamp_max_reach));
             for (Lamp lamp : kept) {
                 if (ownHue && now - lamp.hueTick >= HUE_TICKS) {
                     lamp.hueTick = now + (lamp.pos.hashCode() & 7);
                     lamp.hue = LightColors.ofLamp(level, lamp.pos);
                 }
-                found.add(toLight(ship, lamp, falloff, ownHue));
+                found.add(toLight(ship, lamp, falloff, ownHue, scale, maxReach));
             }
         });
         List<DynamicLight> lamps = found;
@@ -140,7 +144,7 @@ final class ShipLamps {
         return ranked.subList(0, cap);
     }
 
-    private static DynamicLight toLight(ShipRef ship, Lamp lamp, Falloff falloff, boolean ownHue) {
+    private static DynamicLight toLight(ShipRef ship, Lamp lamp, Falloff falloff, boolean ownHue, double scale, float maxReach) {
         Vec3 centre = Vec3.atCenterOf(lamp.pos);
         DynamicLight.Mover mover = pt -> {
             Vec3 w = ship.toWorld(centre, pt >= 1.0f ? ShipRef.Pose.TICK : ShipRef.Pose.RENDER);
@@ -156,7 +160,7 @@ final class ShipLamps {
                     Vec3 d = ship.dirToWorld(local);
                     return d == null ? local : d;
                 };
-                float range = def.range() > 0 ? def.range() : LightShape.DEFAULT_SPOT_RANGE;
+                float range = ShipLampScale.spotRange(def.range() > 0 ? def.range() : LightShape.DEFAULT_SPOT_RANGE, scale);
                 return new DynamicLight(key, DynamicLight.Kind.SHIP_LAMP, mover, dir, def.levelOf(lamp.state), def.color() >= 0 ? def.color() : LightColors.ofBlock(lamp.state), LightShape.SPOT,
                         def.coneDegrees() > 0 ? def.coneDegrees() : LightShape.DEFAULT_CONE_DEGREES, range, falloff);
             }
@@ -164,6 +168,7 @@ final class ShipLamps {
         int level = def != null ? def.levelOf(lamp.state) : lamp.emission;
         // a lamp without a colour of its own takes the colour Colorful Lighting gives its block (a sea lantern's blue)
         int rgb = def != null && def.color() >= 0 ? def.color() : ownHue && lamp.hue >= 0 ? lamp.hue : LightColors.ofBlock(lamp.state);
-        return new DynamicLight(key, DynamicLight.Kind.SHIP_LAMP, mover, null, level, rgb, LightShape.POINT, 0f, level, falloff);
+        float stretch = ShipLampScale.stretch(level, scale, maxReach);
+        return new DynamicLight(key, DynamicLight.Kind.SHIP_LAMP, mover, null, level, rgb, LightShape.POINT, 0f, level * stretch, falloff, -1, 0f, null, stretch);
     }
 }

@@ -549,6 +549,17 @@ public final class ClientLightEngine {
         }
         // the reach follows the faded level for a point (the wanted level is 0 while a light fades out); a spot keeps its range
         float range = data.range > 0 ? data.range : shape == LightShape.SPOT ? LightShape.DEFAULT_SPOT_RANGE : level;
+        // a lit frame on a ship drawn at another size is one of its lamps: its reach goes with the ship's scale (0.6.8)
+        float stretch = 1f;
+        if (ship != null && entity instanceof ItemFrame) {
+            double scale = net.cama.livelylighting.source.ShipLampScale.of(ship, config);
+            if (shape == LightShape.SPOT) {
+                range = net.cama.livelylighting.source.ShipLampScale.spotRange(range, scale);
+            } else if (scale != 1.0 && data.range <= 0) {
+                stretch = net.cama.livelylighting.source.ShipLampScale.stretch(level, scale, Math.max(15, Math.min(48, config.client.scaled_lamp_max_reach)));
+                range = level * stretch;
+            }
+        }
         // a definition without a colour takes Colorful Lighting's for the stack, or for the entity (its own, what it holds, fire)
         int rgb = data.color;
         if (rgb < 0 && wanted > 0) {
@@ -562,7 +573,8 @@ public final class ClientLightEngine {
         // whoever holds a beam is drawn a little lit in its colour (0.6.5, client.spot_holder_glow): the beam points away from them
         float holderGlow = shape == LightShape.SPOT && direction != null && entity instanceof LivingEntity
                 ? Math.min(Math.max(0, Math.min(15, config.client.spot_holder_glow)), level) : 0f;
-        out.add(new DynamicLight(key, kind, mover, direction, level, rgb, shape, cone, Math.max(1f, range), falloff, holderGlow > 0f ? entity.getId() : -1, holderGlow));
+        out.add(new DynamicLight(key, kind, mover, direction, level, rgb, shape, cone, Math.max(stretch < 1f ? 0.5f : 1f, range), falloff,
+                holderGlow > 0f ? entity.getId() : -1, holderGlow, null, stretch));
         return true;
     }
 

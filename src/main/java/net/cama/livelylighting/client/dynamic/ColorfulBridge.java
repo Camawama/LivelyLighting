@@ -22,7 +22,7 @@ import java.util.List;
 final class ColorfulBridge {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static boolean registered;
-    private static MethodHandle point, spot, setMeshLighting, shaderAvailable, setLimits, setBudget, setTransmission, setPropagation;
+    private static MethodHandle point, pointStretched, spot, setMeshLighting, shaderAvailable, setLimits, setBudget, setTransmission, setPropagation;
     private static MethodHandle fieldEnabled, fieldHolds, blocksMoved, setUpdateInterval;
     /** Whether Colorful Lighting was last told to bake the lights into meshes (then no light has a slab). */
     private static boolean meshLighting = true;
@@ -42,6 +42,13 @@ final class ColorfulBridge {
             Class<?> sinkType = Class.forName("net.camacraft.colorfullighting.api.dynamic.DynamicLightSink");
             point = lookup.findVirtual(sinkType, "point", MethodType.methodType(void.class, long.class, double.class, double.class, double.class,
                     float.class, int.class, int.class, float.class));
+            try {
+                // Colorful Lighting 2.10.6: a point light that loses a level over more or less than a block
+                pointStretched = lookup.findVirtual(sinkType, "point", MethodType.methodType(void.class, long.class, double.class, double.class, double.class,
+                        float.class, int.class, int.class, float.class, float.class));
+            } catch (NoSuchMethodException | IllegalAccessException e) {
+                pointStretched = null;
+            }
             spot = lookup.findVirtual(sinkType, "spot", MethodType.methodType(void.class, long.class, double.class, double.class, double.class,
                     double.class, double.class, double.class, float.class, float.class, float.class, int.class, float.class));
             MethodHandle register = lookup.findStatic(compat, "registerExternalProvider", MethodType.methodType(void.class, providerType));
@@ -317,8 +324,14 @@ final class ColorfulBridge {
             if (light.isSpot()) {
                 Vec3 d = light.direction.at(partialTick);
                 spot.invoke(sink, light.ownerKey, p.x, p.y, p.z, d.x, d.y, d.z, light.outerDegrees, light.innerDegrees(), light.levelAtFrame(partialTick), light.rgb, light.range);
-            } else {
+            } else if (light.stretch == 1f) {
                 point.invoke(sink, light.ownerKey, p.x, p.y, p.z, light.levelAtFrame(partialTick), light.rgb, light.falloff.ordinal(), light.range);
+            } else if (pointStretched != null) {
+                pointStretched.invoke(sink, light.ownerKey, p.x, p.y, p.z, light.levelAtFrame(partialTick), light.rgb, light.falloff.ordinal(), light.range, light.stretch);
+            } else {
+                // a Colorful Lighting before 2.10.6 draws a level a block: the lamp as it is on a ship at its own size
+                float lvl = light.levelAtFrame(partialTick);
+                point.invoke(sink, light.ownerKey, p.x, p.y, p.z, lvl, light.rgb, light.falloff.ordinal(), Math.max(1f, lvl));
             }
         }
     }

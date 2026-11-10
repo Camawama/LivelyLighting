@@ -120,6 +120,13 @@ public class LivelyConfig {
     // ship, a block change on the server and a light update on every client each time it crosses a
     // cell, so a ship carrying very many lamps cost clients their frames (2026-10-17). 0 = no cap.
     public int max_lamps_per_ship = 32;
+    // A lamp on a ship drawn at another size (Valkyrien Skies' scale) reaches as far as the ship is scaled (0.6.8): a
+    // glowstone on a ship at twice its size lights 30 blocks round it, at half its size 7.5. The client module keeps the
+    // lamp as bright at its place and stretches its falloff (a beam's reach, not its cone; see
+    // client.scaled_lamp_max_reach); the server module, whose light blocks lose a level per block, places a block of the
+    // lamp's level times the scale, rounded, from 1 to 15. Off: every lamp as on a ship at its own size. Each side reads
+    // its own file.
+    public boolean lamps_scale_with_ships = true;
     // Whether light blocks (minecraft:light) found on ships and in the world count as lamps that
     // light nearby ships and the world around a ship. Off, only genuinely luminous blocks do: a
     // light block of the mod's own left behind by a crash (its record lost with the unsaved data)
@@ -174,6 +181,12 @@ public class LivelyConfig {
         public int lightmap_max_reach = 15;
         // Lightmap renderer: at most this many lamps on moving ships and contraptions are drawn at once, nearest first.
         public int lightmap_max_moving_lamps = 32;
+        // With lamps_scale_with_ships: the farthest a point lamp on an enlarged ship reaches, blocks, 15 to 48 (0.6.8). A
+        // level 15 lamp on a ship at twice its size would reach 30; held to 24 it loses a level every 1.6 blocks. The
+        // shader renderer keeps where a light may go in volumes of three sizes (15, 24 and 48 blocks) and has room for
+        // 4 of the largest against 16 of the middle one; a light without a volume shines through walls. A beam's
+        // reach is held to 48.
+        public int scaled_lamp_max_reach = 24;
         // Shader renderer: lights sent to the shaders per frame, nearest the camera first (at most 64). Every terrain
         // vertex in view evaluates every one of them, so 64 lights cost a frame several times what 16 do; 16 is the
         // usual budget of a forward renderer.
