@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.6.5 — Unreleased
+
+### Changed
+
+- **Whoever holds a beam is drawn a little lit, and never by the beam itself** (`client.spot_holder_glow`, 6; needs
+  `client.lit_carriers` and Colorful Lighting 2.10.3). A flashlight's cone starts at its holder and points away, and its edge
+  lit the body now and then: the holder was dark with lit moments while turning slowly. The holder's own beams are now left
+  out of their light, and they are drawn at least block light 6 in the beam's colour, with nothing round them lit. A point
+  light in the hand lights its holder as it always did.
+- **A carrier's glow has its light's colour** (a kart under warm headlights; white before), and the lights that glow on an
+  entity are left out of its own light, for whoever rides it too.
+
+### Added
+
+- **Xaero's maps drop the light a dynamic light left** (`client.map_refresh`, true; with `client.world_light`). The minimap and
+  the World Map read the world's light and so show a held torch, but they redraw a chunk only when told of a change in it, and
+  a light that moves on or goes out changes no block: its light stayed on the map. Every four ticks the chunks a light's reach
+  left or entered are marked for a redraw the way the maps' own block updates mark them. Without Xaero's maps nothing is done.
+
+### Fixed
+
+- **A small ship's lamps no longer flicker.** A block of a turned or scaled ship was written into Colorful Lighting's block
+  volume at its centre's cell and the cells of its eight corners, up to eight cells for one block: a one-block ship with a lamp
+  on each face stood in a dark lump of its own cells that changed with every turn, and its lamps were shadowed by it in turns.
+  A block now takes the cells whose centres lie in it, and a lamp its own cell alone
+  (`-Dlivelylighting.shipBlocksCentreSampled=false` for the corners).
+- **The block volume follows a ship with lamps as it moves.** The volume is rebuilt every ten ticks; in between a moving
+  ship's lamps shone from among the cells its blocks had left. A ship with lamps within 56 blocks of the camera that has moved
+  a quarter of a block or turned about three degrees has the next build asked for at once, every second tick at most
+  (`-Dlivelylighting.shipLampRebuilds=false`; Colorful Lighting 2.10.3).
+
 ## 0.6.4 — Unreleased
 
 ### Changed

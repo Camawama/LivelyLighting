@@ -23,7 +23,7 @@ final class ColorfulBridge {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static boolean registered;
     private static MethodHandle point, spot, setMeshLighting, shaderAvailable, setLimits, setBudget, setTransmission, setPropagation;
-    private static MethodHandle fieldEnabled, fieldHolds;
+    private static MethodHandle fieldEnabled, fieldHolds, blocksMoved;
     /** Whether Colorful Lighting was last told to bake the lights into meshes (then no light has a slab). */
     private static boolean meshLighting = true;
     private static Boolean sentTransmission, sentPropagation;
@@ -139,6 +139,11 @@ final class ColorfulBridge {
                 };
             });
             register.invoke(filler);
+            try {
+                blocksMoved = lookup.findStatic(compat, "externalBlocksMoved", MethodType.methodType(void.class));
+            } catch (ReflectiveOperationException e) {
+                blocksMoved = null; // before 2.10.3: the volume follows a moving ship every ten ticks
+            }
             LOGGER.info("[LivelyLighting] ships' blocks shadow and tint dynamic light");
         } catch (Throwable t) {
             LOGGER.info("[LivelyLighting] this Colorful Lighting takes no structure blocks for dynamic light (2.9.0+): ships don't shadow it ({})", t.toString());
@@ -157,6 +162,31 @@ final class ColorfulBridge {
             LOGGER.info("[LivelyLighting] what carries a light is drawn lit by it in Colorful Lighting");
         } catch (Throwable t) {
             LOGGER.info("[LivelyLighting] this Colorful Lighting takes no carrier glow (2.10.0+): a kart under its headlights is lit only by what reaches it ({})", t.toString());
+        }
+    }
+
+    /** A ship with lamps moved: Colorful Lighting (2.10.3) rebuilds its block volume on the next tick instead of within ten. */
+    static void blocksMoved() {
+        if (blocksMoved == null) return;
+        try {
+            blocksMoved.invoke();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * Tells Colorful Lighting (2.10.3) the colour of a carrier's glow and which lights an entity is not lit by (its own beams).
+     * Older ones have neither hook: the glow stays white and a beam's holder is lit by what its cone happens to cover.
+     */
+    static void setEntityLights(java.util.function.ToIntFunction<net.minecraft.world.entity.Entity> glowColor,
+                                java.util.function.Function<net.minecraft.world.entity.Entity, long[]> own) {
+        try {
+            Class<?> compat = Class.forName("net.camacraft.colorfullighting.compat.dynamiclights.DynamicLightsCompat");
+            MethodHandles.Lookup lookup = MethodHandles.publicLookup();
+            lookup.findStatic(compat, "setEntityGlowColor", MethodType.methodType(void.class, java.util.function.ToIntFunction.class)).invoke(glowColor);
+            lookup.findStatic(compat, "setEntityOwnLights", MethodType.methodType(void.class, java.util.function.Function.class)).invoke(own);
+        } catch (Throwable t) {
+            LOGGER.info("[LivelyLighting] this Colorful Lighting lights a beam's holder by the beam (2.10.3+ leaves it out): {}", t.toString());
         }
     }
 

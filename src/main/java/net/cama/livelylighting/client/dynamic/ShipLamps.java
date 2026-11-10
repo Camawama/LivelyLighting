@@ -59,6 +59,12 @@ final class ShipLamps {
         scans.clear();
     }
 
+    /** Whether a ship was found to carry lamps at its last scan. */
+    boolean hasLamps(long shipId) {
+        Scan scan = scans.get(shipId);
+        return scan != null && !scan.lamps.isEmpty();
+    }
+
     /** The ships' lamps this tick, as lights; nearest the camera first across ships, under the caps. */
     void collect(ClientLevel level, Vec3 camera, LivelyConfig config, Falloff falloff, List<DynamicLight> out) {
         if (!config.vs_support || !Ships.available()) {

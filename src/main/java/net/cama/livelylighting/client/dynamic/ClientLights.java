@@ -48,6 +48,8 @@ public final class ClientLights {
                 ColorfulBridge.registerShipBlocks();
                 // Colorful Lighting answers an entity's light itself; it asks here how bright a light's carrier is drawn at least (0.6.2)
                 ColorfulBridge.setEntityGlow(ClientLights::glowOf);
+                // in the light's colour, and without the entity's own beams on it (0.6.5, Colorful Lighting 2.10.3)
+                ColorfulBridge.setEntityLights(ClientLights::glowColorOf, ClientLights::ownLightsOf);
             }
         }
         // other mods ask Camafy how much dynamic light reaches a place; this client answers from what it draws (the server
@@ -73,6 +75,18 @@ public final class ClientLights {
         return ENGINE.glowOf(entity);
     }
 
+    /** {@link #glowOf} with the light's colour: {@code level << 24 | 0xRRGGBB}, 0 for none. */
+    public static int glowColorOf(net.minecraft.world.entity.Entity entity) {
+        if (entity == null || !drawing() || !LivelyConfig.get().client.lit_carriers) return 0;
+        return ENGINE.glowColorOf(entity);
+    }
+
+    /** The keys of the lights an entity carries that are not to light it (its beams, the lights that glow on it); null for none. */
+    public static long[] ownLightsOf(net.minecraft.world.entity.Entity entity) {
+        if (entity == null || !drawing()) return null;
+        return ENGINE.ownKeysOf(entity);
+    }
+
     /** Whether the standalone lightmap mixins apply (no Colorful Lighting to draw for us). */
     public static boolean standalone() {
         return !colorful;
@@ -85,6 +99,7 @@ public final class ClientLights {
         if (level == null) return;
         boolean draw = ClientLightMode.drawsOwnLight();
         if (!draw) {
+            MapRefresh.tick(level, java.util.Collections.emptyList(), false);
             if (!ENGINE.lights().isEmpty()) ENGINE.forget();
             if (StandaloneLights.active()) StandaloneLights.setActive(false);
             if (colorful) ColorfulBridge.setMeshLighting(true);
@@ -96,6 +111,8 @@ public final class ClientLights {
         }
         ENGINE.tick(level);
         LivelyConfig config = LivelyConfig.get();
+        // Xaero's maps redraw the chunks a light left (0.6.5)
+        MapRefresh.tick(level, ENGINE.lights(), config.client.map_refresh && config.client.world_light);
         if (colorful) {
             ColorfulBridge.setLimits(config.client.shader_max_lights, config.client.shader_max_distance);
             ColorfulBridge.setRebuildBudget(Math.max(8, config.client.lightmap_rebuilds_per_tick * 4));

@@ -200,6 +200,13 @@ public class LivelyConfig {
         // which point away from it) is drawn at least that bright, and whoever rides it with it, with nothing round it lit. Off:
         // carriers are lit only by what reaches them.
         public boolean lit_carriers = true;
+        // Whoever holds a spot light (a flashlight) is drawn at least this bright in its colour, 0 to 15, 0 for off (0.6.5):
+        // the beam starts at the holder and points away, so nothing of it lights them. The beam itself never lights its
+        // holder. Needs lit_carriers.
+        public int spot_holder_glow = 6;
+        // Xaero's minimap and World Map redraw the chunks a dynamic light left or moved in (0.6.5): they read the world's
+        // light (world_light), but redraw a chunk only when told of a change, and kept the light they had drawn.
+        public boolean map_refresh = true;
         // With experimental.cluster_growing: lights near each other merge on the client as the server's light blocks do
         // (0.6.3): point lights of entities, dropped items and other mods closer than experimental.cluster_merge_distance
         // to one another, with nothing solid between them, add one larger light in their middle. It is their light added

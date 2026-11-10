@@ -91,6 +91,8 @@ public final class ClientLightEngine {
         contraptionLamps.forget();
         clusters.forget();
         holds.clear();
+        ShipBlocks.forget();
+        MapRefresh.forget();
         lights = Collections.emptyList();
     }
 
@@ -152,7 +154,7 @@ public final class ClientLightEngine {
         // a new light waits dark for the slab that keeps it behind walls (0.6.4)
         hold(config, out);
         // the ships' blocks for the volume the light is propagated through (Colorful Lighting's worker reads the snapshot)
-        ShipBlocks.snapshot(level);
+        ShipBlocks.snapshot(level, shipLamps);
         // fades that were not wanted this tick run out
         fades.entrySet().removeIf(e -> tick - e.getValue().lastSeen > 1200);
         lights = Collections.unmodifiableList(out);
@@ -263,6 +265,50 @@ public final class ClientLightEngine {
             if (l.glowEntity == id || rides(entity, l.glowEntity)) best = l.glowLevel;
         }
         return Math.round(best);
+    }
+
+    /**
+     * The glow of {@link #glowOf} with its light's colour (0.6.5): {@code level << 24 | 0xRRGGBB}, white for a light without a
+     * colour of its own; 0 for none.
+     */
+    public int glowColorOf(Entity entity) {
+        List<DynamicLight> ls = lights;
+        if (ls.isEmpty()) return 0;
+        int id = entity.getId();
+        float best = 0f;
+        int rgb = 0xFFFFFF;
+        for (DynamicLight l : ls) {
+            if (l.glowEntity < 0 || l.glowLevel <= best) continue;
+            if (l.glowEntity == id || rides(entity, l.glowEntity)) {
+                best = l.glowLevel;
+                rgb = l.rgb < 0 ? 0xFFFFFF : l.rgb & 0xFFFFFF;
+            }
+        }
+        int level = Math.min(15, Math.round(best));
+        return level <= 0 ? 0 : level << 24 | rgb;
+    }
+
+    /**
+     * The keys of the lights an entity is not to be lit by (0.6.5): the ones that glow on it or on what it rides (a kart's
+     * headlights and its driver), and the beams it holds itself. They start at the entity and point away from it; lit by them,
+     * a flashlight's holder flashed bright whenever the cone's edge passed over the body. Null for none.
+     */
+    @Nullable
+    public long[] ownKeysOf(Entity entity) {
+        List<DynamicLight> ls = lights;
+        if (ls.isEmpty()) return null;
+        int id = entity.getId();
+        long[] own = null;
+        int n = 0;
+        for (DynamicLight l : ls) {
+            boolean mine = l.glowEntity >= 0 && (l.glowEntity == id || rides(entity, l.glowEntity));
+            if (!mine && l.isSpot() && (l.kind == DynamicLight.Kind.ENTITY || l.kind == DynamicLight.Kind.FORCED) && (l.ownerKey >>> 8) == id) mine = true;
+            if (!mine) continue;
+            if (own == null) own = new long[2];
+            else if (n == own.length) own = java.util.Arrays.copyOf(own, n * 2);
+            own[n++] = l.ownerKey;
+        }
+        return own == null ? null : n == own.length ? own : java.util.Arrays.copyOf(own, n);
     }
 
     private static boolean rides(Entity entity, int vehicleId) {
@@ -449,7 +495,10 @@ public final class ClientLightEngine {
             if (kept != null) rgb = kept; // a light fading out keeps the colour it had
         }
         if (wanted <= 0 && fade == null) colours.remove(key);
-        out.add(new DynamicLight(key, kind, mover, direction, level, rgb, shape, cone, Math.max(1f, range), falloff));
+        // whoever holds a beam is drawn a little lit in its colour (0.6.5, client.spot_holder_glow): the beam points away from them
+        float holderGlow = shape == LightShape.SPOT && direction != null && entity instanceof LivingEntity
+                ? Math.min(Math.max(0, Math.min(15, config.client.spot_holder_glow)), level) : 0f;
+        out.add(new DynamicLight(key, kind, mover, direction, level, rgb, shape, cone, Math.max(1f, range), falloff, holderGlow > 0f ? entity.getId() : -1, holderGlow));
         return true;
     }
 
