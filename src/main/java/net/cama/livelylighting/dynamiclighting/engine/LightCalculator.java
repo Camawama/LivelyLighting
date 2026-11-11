@@ -125,6 +125,12 @@ public class LightCalculator {
         String s = text.trim();
         String name = s.toLowerCase(java.util.Locale.ROOT);
         if (name.equals("uv") || name.equals("blacklight") || name.equals("ultraviolet")) return LightData.BLACKLIGHT;
+        // a light that absorbs (0.8.0): all light, or the channels of a colour after "absorb:" ("absorb:#00FFFF" leaves red)
+        if (name.equals("absorb") || name.equals("dark") || name.equals("darkness") || name.equals("void")) return LightData.ABSORB | 0xFFFFFF;
+        if (name.startsWith("absorb:")) {
+            int of = parseColor(s.substring("absorb:".length()));
+            return of >= 0 && of != LightData.BLACKLIGHT && !LightData.isAbsorber(of) ? LightData.ABSORB | of : LightData.ABSORB | 0xFFFFFF;
+        }
         net.minecraft.world.item.DyeColor dye = net.minecraft.world.item.DyeColor.byName(name, null);
         if (dye != null) return dye.getTextColor() & 0xFFFFFF;
         if (s.startsWith("#")) s = s.substring(1);
@@ -341,7 +347,25 @@ public class LightCalculator {
         return entityLight;
     }
 
+    /**
+     * Whether the caller draws lights that absorb (0.8.0): the client module does, while it gathers its lights. For everyone
+     * else (the server module's light blocks, the game's rules) a definition whose colour absorbs gives no light at all.
+     */
+    private static final ThreadLocal<Boolean> ABSORBERS = ThreadLocal.withInitial(() -> Boolean.FALSE);
+
+    public static void absorbers(boolean drawn) {
+        ABSORBERS.set(drawn);
+    }
+
+    private static LightData gate(LightData data) {
+        return data != null && data.level > 0 && LightData.isAbsorber(data.color) && !ABSORBERS.get() ? EMPTY_LIGHT_DATA : data;
+    }
+
     public static LightData getEntityLightLevel(Entity entity, Level level, LivelyConfig config) {
+        return gate(entityLightLevel(entity, level, config));
+    }
+
+    private static LightData entityLightLevel(Entity entity, Level level, LivelyConfig config) {
         LightData result = computeEntityLightLevel(entity, level, config);
         // Suffocation reads world state and is the expensive test here, so it
         // runs last and only for entities that would actually emit: the vast
@@ -455,7 +479,7 @@ public class LightCalculator {
         int color;
         if (value instanceof net.minecraft.nbt.NumericTag number) {
             int n = number.getAsInt();
-            color = n == LightData.BLACKLIGHT ? n : n < 0 ? -1 : n & 0xFFFFFF;
+            color = n == LightData.BLACKLIGHT ? n : n < 0 ? -1 : (n & LightData.ABSORB) != 0 ? LightData.ABSORB | (n & 0xFFFFFF) : n & 0xFFFFFF;
         } else {
             String text = value.getAsString();
             Integer known = tagColours.get(text);
@@ -509,6 +533,10 @@ public class LightCalculator {
     }
 
     public static LightData getItemLightLevel(ItemStack stack, Entity entity, Level level, LivelyConfig config) {
+        return gate(itemLightLevel(stack, entity, level, config));
+    }
+
+    private static LightData itemLightLevel(ItemStack stack, Entity entity, Level level, LivelyConfig config) {
         if (stack.isEmpty()) return EMPTY_LIGHT_DATA;
 
         Item item = stack.getItem();

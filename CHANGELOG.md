@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.8.0 — Unreleased
+
+### Added
+
+- **Lights that absorb light.** A definition whose `"color"` is `"absorb"` (also `"dark"`, `"darkness"`, `"void"`), or
+  a stack whose `color_nbt` tag says so, is a light that takes light away: an item in the hand that darkens the room
+  round its holder, a flashlight whose beam cuts a dark cone into a lit wall. Its level, shape, cone and range are a
+  light's; `"absorb:#00FFFF"` takes only those channels (here green and blue, leaving red light). Drawn by the client
+  module with Colorful Lighting 2.12.0 or newer (`DynamicLightSink.ABSORB`); with an older one, and for the server module,
+  light blocks and anything that asks how bright a place is (`world_light`, `gameplay_light`, Camafy's
+  `DynamicLights.lightAt`), such a definition gives nothing at all. It never merges with other lights, shows no beam in
+  the air and lights no holder.
+
+## 0.7.2 — Unreleased
+
+### Changed
+
+- **A headlight's spill is small.** It reached as far as its level, nine blocks all round the frame, which lit far more
+  of a ship than a lamp pointing away would. It is now a light of level 10 at the frame that is gone four blocks from it:
+  `client.headlight_spill` (10) and the new `client.headlight_spill_reach` (4.0 blocks).
+
+## 0.7.1 — Unreleased
+
+### Added
+
+- **A headlight on a ship shows where it comes from.** A lit item in an item frame on a Valkyrien Skies ship is a beam
+  that points away from the ship, so nothing of it lit the ship: the beams came out of the dark. The frame and its item
+  are now drawn lit, and a dim round light at the frame lights the ship's blocks beside it. `client.headlight_spill`
+  (9, 0 to 15, 0 for off).
+
+### Fixed
+
+- **A flashlight switched off lit a round patch about its holder for a moment.** A light fading out took the empty
+  definition's shape, a point light, at the level it was fading from. It now keeps the shape, cone, range and colour it
+  had (a red beam also faded in the default colour).
+- **A blacklight lamp on a ship is a blacklight.** A ship's lamp takes the colour of the light stored round it, which for
+  a blacklight is only the violet that shows of it. A lamp whose block Colorful Lighting calls ultraviolet stays so.
+
 ## 0.7.0 — Unreleased
 
 ### Added

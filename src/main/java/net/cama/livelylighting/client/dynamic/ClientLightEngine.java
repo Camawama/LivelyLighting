@@ -49,6 +49,10 @@ public final class ClientLightEngine {
         float established;
         float held;
         long lastSeen;
+        /** What the light was while it was wanted: one fading out keeps its shape, cone and range. */
+        @Nullable LightShape shape;
+        float cone;
+        float range;
     }
 
     private final Map<Long, Fade> fades = new HashMap<>();
@@ -439,6 +443,16 @@ public final class ClientLightEngine {
 
     /** The entity's lights this tick (one per slot with cluster_growing, else one combined); true when it gives any. */
     private boolean collectEntity(Entity entity, ClientLevel level, LivelyConfig config, Falloff falloff, List<DynamicLight> out) {
+        // the client module draws the lights that absorb (0.8.0); nobody else is given them
+        LightCalculator.absorbers(true);
+        try {
+            return collectEntityLights(entity, level, config, falloff, out);
+        } finally {
+            LightCalculator.absorbers(false);
+        }
+    }
+
+    private boolean collectEntityLights(Entity entity, ClientLevel level, LivelyConfig config, Falloff falloff, List<DynamicLight> out) {
         if (ClientLightMode.disabled(entity.getUUID())) return false;
         boolean any = false;
         Integer forced = ClientLightMode.forcedLevel(entity.getUUID());
@@ -533,8 +547,21 @@ public final class ClientLightEngine {
             mover = pt -> eye(entity, pt);
         }
         DynamicLight.Mover direction = null;
+        boolean headlight = false;
         LightShape shape = data.shape;
         float cone = data.coneDegrees;
+        float dataRange = data.range;
+        if (wanted > 0) {
+            fade.shape = shape;
+            fade.cone = cone;
+            fade.range = dataRange;
+        } else if (fade.shape != null) {
+            // a light fading out is the light it was (0.7.1): a beam switched off took the empty definition's shape and
+            // lit a pool round its holder for the ticks of the fade
+            shape = fade.shape;
+            cone = fade.cone;
+            dataRange = fade.range;
+        }
         if (shape == LightShape.SPOT) {
             direction = pt -> entity instanceof LivingEntity ? entity.getViewVector(pt) : entity.getLookAngle();
         } else if (ship != null && entity instanceof ItemFrame frame && config.client.frames_on_ships_are_headlights) {
@@ -546,37 +573,50 @@ public final class ClientLightEngine {
             };
             shape = LightShape.SPOT;
             cone = LightShape.DEFAULT_CONE_DEGREES;
+            headlight = true;
         }
         // the reach follows the faded level for a point (the wanted level is 0 while a light fades out); a spot keeps its range
-        float range = data.range > 0 ? data.range : shape == LightShape.SPOT ? LightShape.DEFAULT_SPOT_RANGE : level;
+        float range = dataRange > 0 ? dataRange : shape == LightShape.SPOT ? LightShape.DEFAULT_SPOT_RANGE : level;
         // a lit frame on a ship drawn at another size is one of its lamps: its reach goes with the ship's scale (0.6.8)
         float stretch = 1f;
         if (ship != null && entity instanceof ItemFrame) {
             double scale = net.cama.livelylighting.source.ShipLampScale.of(ship, config);
             if (shape == LightShape.SPOT) {
                 range = net.cama.livelylighting.source.ShipLampScale.spotRange(range, scale);
-            } else if (scale != 1.0 && data.range <= 0) {
+            } else if (scale != 1.0 && dataRange <= 0) {
                 stretch = net.cama.livelylighting.source.ShipLampScale.stretch(level, scale, Math.max(15, Math.min(48, config.client.scaled_lamp_max_reach)));
                 range = level * stretch;
             }
         }
         // a definition without a colour takes Colorful Lighting's for the stack, or for the entity (its own, what it holds, fire)
         int rgb = data.color;
-        if (rgb < 0 && wanted > 0) {
-            rgb = stack != null && !stack.isEmpty() ? LightColors.ofItem(stack) : LightColors.ofEntity(entity);
+        if (wanted > 0) {
+            if (rgb < 0) rgb = stack != null && !stack.isEmpty() ? LightColors.ofItem(stack) : LightColors.ofEntity(entity);
             if (rgb >= 0) colours.put(key, rgb);
-        } else if (rgb < 0) {
+        } else {
             Integer kept = colours.get(key);
             if (kept != null) rgb = kept; // a light fading out keeps the colour it had
         }
         if (wanted <= 0 && fade == null) colours.remove(key);
         // whoever holds a beam is drawn a little lit in its colour (0.6.5, client.spot_holder_glow): the beam points away from them
-        float holderGlow = shape == LightShape.SPOT && direction != null && entity instanceof LivingEntity
+        boolean absorbs = net.cama.livelylighting.dynamiclighting.engine.LightData.isAbsorber(rgb);
+        float holderGlow = !absorbs && shape == LightShape.SPOT && direction != null && entity instanceof LivingEntity
                 ? Math.min(Math.max(0, Math.min(15, config.client.spot_holder_glow)), level) : 0f;
+        // a headlight on a ship (0.7.1): its frame is drawn lit, and a dim light round it shows the ship it is on
+        float spill = headlight && !absorbs ? Math.min(Math.max(0, Math.min(15, config.client.headlight_spill)), level) : 0f;
+        if (spill > 0f) holderGlow = spill;
         out.add(new DynamicLight(key, kind, mover, direction, level, rgb, shape, cone, Math.max(stretch < 1f ? 0.5f : 1f, range), falloff,
                 holderGlow > 0f ? entity.getId() : -1, holderGlow, null, stretch));
+        if (spill > 0f) {
+            // a level lost over less than a block: bright at the frame, gone a few blocks on (0.7.2: it reached as far as its level)
+            float reach = (float) Math.max(0.5, Math.min(spill, config.client.headlight_spill_reach));
+            out.add(new DynamicLight(key ^ SPILL_KEY_BIT, kind, mover, null, spill, rgb, LightShape.POINT, 0f, reach, falloff, -1, 0f, null, reach / spill));
+        }
         return true;
     }
+
+    /** A headlight's spill is a light of its own beside the beam. */
+    private static final long SPILL_KEY_BIT = 1L << 61;
 
     /** The colour each light last had, so one fading out (its stack gone) keeps it. */
     private final Map<Long, Integer> colours = new HashMap<>();

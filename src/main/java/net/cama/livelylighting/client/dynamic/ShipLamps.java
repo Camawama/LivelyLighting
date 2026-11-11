@@ -167,7 +167,10 @@ final class ShipLamps {
         }
         int level = def != null ? def.levelOf(lamp.state) : lamp.emission;
         // a lamp without a colour of its own takes the colour Colorful Lighting gives its block (a sea lantern's blue)
-        int rgb = def != null && def.color() >= 0 ? def.color() : ownHue && lamp.hue >= 0 ? lamp.hue : LightColors.ofBlock(lamp.state);
+        // a blacklight stays one (0.7.1): the light stored round it is only the violet that shows of it
+        int own = def != null && def.color() >= 0 ? def.color() : LightColors.ofBlock(lamp.state);
+        int rgb = def != null && def.color() >= 0 || own == net.cama.livelylighting.dynamiclighting.engine.LightData.BLACKLIGHT ? own
+                : ownHue && lamp.hue >= 0 ? lamp.hue : own;
         float stretch = ShipLampScale.stretch(level, scale, maxReach);
         return new DynamicLight(key, DynamicLight.Kind.SHIP_LAMP, mover, null, level, rgb, LightShape.POINT, 0f, level * stretch, falloff, -1, 0f, null, stretch);
     }

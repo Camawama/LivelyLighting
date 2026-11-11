@@ -117,6 +117,8 @@ public final class DynamicLight {
 
     /** The level left at a world point, by the falloff, 0 when out of reach. Spot lights are cut by their cone. */
     public double levelAt(double x, double y, double z) {
+        // a light that absorbs is no light to anything that asks how bright a place is (0.8.0)
+        if (net.cama.livelylighting.dynamiclighting.engine.LightData.isAbsorber(rgb)) return 0;
         double dx = x - pos.x, dy = y - pos.y, dz = z - pos.z;
         double d2 = dx * dx + dy * dy + dz * dz;
         if (d2 > range * range) return 0;

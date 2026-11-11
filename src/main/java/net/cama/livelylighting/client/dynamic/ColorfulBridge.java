@@ -28,6 +28,8 @@ final class ColorfulBridge {
     private static boolean meshLighting = true;
     /** Whether this Colorful Lighting knows a blacklight (2.11.0, {@code DynamicLightSink.BLACKLIGHT}); an older one is given its violet. */
     private static boolean blacklights;
+    /** Whether this Colorful Lighting knows a light that absorbs (2.12.0, {@code DynamicLightSink.ABSORB}); an older one is given no such light. */
+    private static boolean absorbers;
     private static Boolean sentTransmission, sentPropagation;
     private static int sentLights = -1, sentBudget = -1, sentInterval = -1;
     private static float sentDistance = -1f;
@@ -58,6 +60,11 @@ final class ColorfulBridge {
                 blacklights = sinkType.getField("BLACKLIGHT").getInt(null) == net.cama.livelylighting.dynamiclighting.engine.LightData.BLACKLIGHT;
             } catch (ReflectiveOperationException | RuntimeException e) {
                 blacklights = false;
+            }
+            try {
+                absorbers = sinkType.getField("ABSORB").getInt(null) == net.cama.livelylighting.dynamiclighting.engine.LightData.ABSORB;
+            } catch (ReflectiveOperationException | RuntimeException e) {
+                absorbers = false;
             }
             try {
                 setMeshLighting = lookup.findStatic(compat, "setExternalMeshLighting", MethodType.methodType(void.class, boolean.class));
@@ -327,8 +334,10 @@ final class ColorfulBridge {
     private static void collect(ClientLightEngine engine, ClientLevel level, float partialTick, Object sink) throws Throwable {
         List<DynamicLight> lights = engine.lights();
         for (DynamicLight light : lights) {
+            boolean absorbs = net.cama.livelylighting.dynamiclighting.engine.LightData.isAbsorber(light.rgb);
+            if (absorbs && !absorbers) continue;
             Vec3 p = light.mover.at(partialTick);
-            int rgb = blacklights ? light.rgb : net.cama.livelylighting.dynamiclighting.engine.LightData.shown(light.rgb);
+            int rgb = absorbs || blacklights ? light.rgb : net.cama.livelylighting.dynamiclighting.engine.LightData.shown(light.rgb);
             if (light.isSpot()) {
                 Vec3 d = light.direction.at(partialTick);
                 spot.invoke(sink, light.ownerKey, p.x, p.y, p.z, d.x, d.y, d.z, light.outerDegrees, light.innerDegrees(), light.levelAtFrame(partialTick), rgb, light.range);

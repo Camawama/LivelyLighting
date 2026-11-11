@@ -209,6 +209,13 @@ public class LivelyConfig {
         // A lit item in an item frame on a Valkyrien Skies ship is a headlight (0.6.1): a cone along the frame's facing, turned
         // with the ship, the default cone and reach; off, it is the point light it is on the ground.
         public boolean frames_on_ships_are_headlights = true;
+        // What a headlight on a ship spills round itself, as a light level, 0 to 15, 0 for off (0.7.1): the beam points away
+        // from the ship, so without it nothing showed where the beam came from. The frame and its item are drawn lit by it
+        // too (lit_carriers), and the ship's blocks beside the frame take the spill as any dim light.
+        public int headlight_spill = 10;
+        // How far that spill reaches, in blocks (0.7.2): a headlight points away, and what leaks from it lights only what is
+        // right beside it. The spill is at its level at the frame and gone this far from it.
+        public double headlight_spill_reach = 4.0;
         // An entity carrying a light that asks to be lit by it (0.6.2; Camafy's LightSource.glow: a kart under its headlights,
         // which point away from it) is drawn at least that bright, and whoever rides it with it, with nothing round it lit. Off:
         // carriers are lit only by what reaches them.

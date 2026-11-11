@@ -56,6 +56,8 @@ final class SpotBeams {
                 buf.begin(VertexFormat.Mode.TRIANGLES, DefaultVertexFormat.POSITION_COLOR);
                 begun = true;
             }
+            // a beam that absorbs shows no shaft of light in the air (0.8.0)
+            if (net.cama.livelylighting.dynamiclighting.engine.LightData.isAbsorber(light.rgb)) continue;
             boolean blacklight = light.rgb == net.cama.livelylighting.dynamiclighting.engine.LightData.BLACKLIGHT;
             int rgb = light.rgb < 0 ? 0xFFF4DC : net.cama.livelylighting.dynamiclighting.engine.LightData.shown(light.rgb);
             float r = ((rgb >> 16) & 0xFF) / 255f, g = ((rgb >> 8) & 0xFF) / 255f, b = (rgb & 0xFF) / 255f;

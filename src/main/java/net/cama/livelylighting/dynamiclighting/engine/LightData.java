@@ -45,9 +45,21 @@ public class LightData {
     /** What a blacklight is drawn as where nothing can make colours glow: its own violet. */
     public static final int BLACKLIGHT_SHOWN = 0x6020FF;
 
+    /**
+     * Or'd into a colour: a light that absorbs light (0.8.0, Colorful Lighting 2.12.0's {@code DynamicLightSink.ABSORB}).
+     * Its red, green and blue say how much of each channel it takes; {@code "absorb"} in a definition takes all of it. Only
+     * the client module draws it, and only with a Colorful Lighting that knows it: it is never a light block, never light
+     * for the game's rules, and nothing at all for the server module.
+     */
+    public static final int ABSORB = 0x2000000;
+
+    public static boolean isAbsorber(int rgb) {
+        return rgb >= 0 && (rgb & ABSORB) != 0;
+    }
+
     /** A light's colour as plain {@code 0xRRGGBB}: a blacklight's violet, any other colour itself, -1 kept. */
     public static int shown(int rgb) {
-        return rgb == BLACKLIGHT ? BLACKLIGHT_SHOWN : rgb;
+        return rgb == BLACKLIGHT ? BLACKLIGHT_SHOWN : isAbsorber(rgb) ? 0 : rgb;
     }
 
     public LightData(int level, boolean waterSensitive, List<ParticleType<?>> particles, List<SoundData> sounds, List<SoundData> extinguishSounds,
