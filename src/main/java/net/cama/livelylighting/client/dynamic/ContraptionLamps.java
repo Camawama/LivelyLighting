@@ -38,7 +38,8 @@ final class ContraptionLamps {
     private static MethodHandle getContraption, getBlocks, toGlobalVector, applyRotation;
     private static boolean ready, failed;
 
-    private record Lamp(BlockPos pos, BlockState state) {}
+    /** {@code level}: the level the block gives light at (Colorful Lighting's for it, 0.9.0); {@code absorb}: what it takes away instead, or 0. */
+    private record Lamp(BlockPos pos, BlockState state, int level, int absorb) {}
 
     private record Scan(long tick, List<Lamp> lamps) {}
 
@@ -82,7 +83,7 @@ final class ContraptionLamps {
             int cap = config.max_lamps_per_ship;
             if (cap > 0 && lamps.size() > cap) {
                 List<Lamp> ranked = new ArrayList<>(lamps);
-                ranked.sort((a, b) -> Integer.compare(b.state.getLightEmission(), a.state.getLightEmission()));
+                ranked.sort((a, b) -> Integer.compare(b.level, a.level));
                 lamps = ranked.subList(0, cap);
             }
             for (Lamp lamp : lamps) out.add(toLight(entity, lamp, falloff));
@@ -100,9 +101,16 @@ final class ContraptionLamps {
             for (Map.Entry<BlockPos, Object> e : blocks.entrySet()) {
                 // vanilla's structure block info is a compile-time class (remapped by the build; by name it isn't found in production)
                 BlockState state = e.getValue() instanceof net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate.StructureBlockInfo info ? info.state() : null;
-                if (state == null || state.getLightEmission() <= 0) continue;
+                if (state == null) continue;
                 if (state.is(Blocks.LIGHT) && !config.light_blocks_are_lamps) continue;
-                lamps.add(new Lamp(e.getKey().immutable(), state));
+                int absorb = LightColors.absorbOf(state);
+                if (absorb != 0) {
+                    lamps.add(new Lamp(e.getKey().immutable(), state, absorb >>> 24, absorb & 0xFFFFFF));
+                    continue;
+                }
+                if (state.getLightEmission() <= 0) continue;
+                int lvl = LightColors.levelOf(state);
+                if (lvl > 0) lamps.add(new Lamp(e.getKey().immutable(), state, lvl, 0));
             }
         } catch (Throwable t) {
             failed = true;
@@ -122,6 +130,11 @@ final class ContraptionLamps {
             }
         };
         long key = ((long) entity.getId() << 24) ^ (lamp.pos.asLong() & 0xFFFFFFL) ^ 0x3C00000000000000L;
+        if (lamp.absorb != 0) {
+            // a block that takes light away (0.9.0): a light that absorbs
+            return new DynamicLight(key, DynamicLight.Kind.CONTRAPTION_LAMP, mover, null, lamp.level, net.cama.livelylighting.dynamiclighting.engine.LightData.ABSORB | lamp.absorb,
+                    LightShape.POINT, 0f, lamp.level, Falloff.DIAMOND);
+        }
         BlockLightDefs.BlockLightData def = BlockLightDefs.get(lamp.state.getBlock());
         if (def != null && def.shape() == LightShape.SPOT && def.isLit(lamp.state)) {
             Direction facing = def.directionOf(lamp.state);
@@ -139,7 +152,7 @@ final class ContraptionLamps {
                         def.coneDegrees() > 0 ? def.coneDegrees() : LightShape.DEFAULT_CONE_DEGREES, range, falloff);
             }
         }
-        int level = def != null ? def.levelOf(lamp.state) : lamp.state.getLightEmission();
+        int level = def != null ? def.levelOf(lamp.state) : lamp.level;
         int rgb = def != null && def.color() >= 0 ? def.color() : LightColors.ofBlock(lamp.state);
         return new DynamicLight(key, DynamicLight.Kind.CONTRAPTION_LAMP, mover, null, level, rgb, LightShape.POINT, 0f, level, falloff);
     }

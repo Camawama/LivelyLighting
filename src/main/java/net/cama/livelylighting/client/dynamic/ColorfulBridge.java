@@ -30,6 +30,13 @@ final class ColorfulBridge {
     private static boolean blacklights;
     /** Whether this Colorful Lighting knows a light that absorbs (2.12.0, {@code DynamicLightSink.ABSORB}); an older one is given no such light. */
     private static boolean absorbers;
+    /**
+     * Whether this Colorful Lighting knows where a light is drawn (2.13.0): {@code DynamicLightSink.SHIPS_ONLY},
+     * {@code NOT_ON_SHIPS} and, for a light that absorbs, {@code KEEPS_SKY}. An older one is given no lamp of the world
+     * for a ship (it would light the world twice) and a ship's absorbing block as a plain light that absorbs.
+     */
+    private static boolean shipFlags;
+    private static int shipsOnly, notOnShips, keepsSky;
     private static Boolean sentTransmission, sentPropagation;
     private static int sentLights = -1, sentBudget = -1, sentInterval = -1;
     private static float sentDistance = -1f;
@@ -65,6 +72,14 @@ final class ColorfulBridge {
                 absorbers = sinkType.getField("ABSORB").getInt(null) == net.cama.livelylighting.dynamiclighting.engine.LightData.ABSORB;
             } catch (ReflectiveOperationException | RuntimeException e) {
                 absorbers = false;
+            }
+            try {
+                shipsOnly = sinkType.getField("SHIPS_ONLY").getInt(null);
+                notOnShips = sinkType.getField("NOT_ON_SHIPS").getInt(null);
+                keepsSky = sinkType.getField("KEEPS_SKY").getInt(null);
+                shipFlags = true;
+            } catch (ReflectiveOperationException | RuntimeException e) {
+                shipFlags = false;
             }
             try {
                 setMeshLighting = lookup.findStatic(compat, "setExternalMeshLighting", MethodType.methodType(void.class, boolean.class));
@@ -307,6 +322,14 @@ final class ColorfulBridge {
         }
     }
 
+    /**
+     * Whether a light for the blocks of ships alone is drawn now (0.9.0): Colorful Lighting 2.13.0 or newer, drawing the
+     * lights in its shaders.
+     */
+    static boolean shipLightsDrawn() {
+        return registered && shipFlags && !meshLighting && shaderPathAvailable();
+    }
+
     /** Whether Colorful Lighting is to apply the lights to chunk meshes (the lightmap renderer) or leave them to its shaders. */
     static void setMeshLighting(boolean meshes) {
         meshLighting = meshes;
@@ -338,6 +361,16 @@ final class ColorfulBridge {
             if (absorbs && !absorbers) continue;
             Vec3 p = light.mover.at(partialTick);
             int rgb = absorbs || blacklights ? light.rgb : net.cama.livelylighting.dynamiclighting.engine.LightData.shown(light.rgb);
+            if (light.kind == DynamicLight.Kind.WORLD_LAMP) {
+                // a lamp of the world for the ships beside it (0.9.0): on ships' blocks alone, or not at all
+                if (!shipFlags || meshLighting) continue;
+                rgb = (rgb < 0 ? 0xFFFFFF : rgb & 0xFFFFFF) | shipsOnly;
+            } else if (absorbs && shipFlags && !light.isSpot()) {
+                // an absorbing block of a ship or a contraption takes the block light, as it does placed in the world; its
+                // own ship is darkened by the light stored there already
+                if (light.kind == DynamicLight.Kind.SHIP_LAMP) rgb |= notOnShips | keepsSky;
+                else if (light.kind == DynamicLight.Kind.CONTRAPTION_LAMP) rgb |= keepsSky;
+            }
             if (light.isSpot()) {
                 Vec3 d = light.direction.at(partialTick);
                 spot.invoke(sink, light.ownerKey, p.x, p.y, p.z, d.x, d.y, d.z, light.outerDegrees, light.innerDegrees(), light.levelAtFrame(partialTick), rgb, light.range);

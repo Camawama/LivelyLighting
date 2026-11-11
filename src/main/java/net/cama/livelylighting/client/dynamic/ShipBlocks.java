@@ -120,7 +120,7 @@ final class ShipBlocks {
     }
 
     /** On the client tick: the loaded ships and their world boxes, for the worker that fills the volume. */
-    static void snapshot(ClientLevel level, ShipLamps lamps, List<DynamicLight> lights) {
+    static void snapshot(ClientLevel level, ShipLamps lamps, WorldLamps worldLamps, List<DynamicLight> lights) {
         ticks++;
         if (!Ships.available()) {
             if (!snapshot.isEmpty()) snapshot = Collections.emptyList();
@@ -140,7 +140,8 @@ final class ShipBlocks {
             boolean aligned = up != null && east != null && Math.abs(up.y) > 0.999 && (Math.abs(east.x) > 0.999 || Math.abs(east.z) > 0.999);
             out.add(new Snap(ship, box, aligned, ship.scale()));
             if (up == null || east == null || !box.intersects(near)) return;
-            boolean lamp = LAMP_REBUILDS && lamps.hasLamps(ship.id());
+            // a ship lit by a lamp of the world (0.9.0) counts as one with lamps: its hull's shadow in that light moves with it
+            boolean lamp = LAMP_REBUILDS && (lamps.hasLamps(ship.id()) || worldLamps.lights(ship.id()));
             boolean tints = glass.contains(ship.id()) && reached(box, lights);
             if (!lamp && !tints) return;
             Vec3 c = box.getCenter();

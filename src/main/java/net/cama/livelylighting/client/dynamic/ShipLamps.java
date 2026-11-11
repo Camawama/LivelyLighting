@@ -40,15 +40,18 @@ final class ShipLamps {
         final BlockPos pos;
         final BlockState state;
         final int emission;
+        /** What the block takes away instead (0.9.0): 0xRRGGBB, or 0 for a lamp that gives light. */
+        final int absorb;
         /** The colour the lamp's light leaves the ship with, -1 unknown; asked at {@link #hueTick}. */
         int hue = -1;
         /** Far enough back that a new lamp is asked at once (not Long.MIN_VALUE: the tick minus it overflows). */
         long hueTick = -1_000_000L;
 
-        Lamp(BlockPos pos, BlockState state, int emission) {
+        Lamp(BlockPos pos, BlockState state, int emission, int absorb) {
             this.pos = pos;
             this.state = state;
             this.emission = emission;
+            this.absorb = absorb;
         }
     }
 
@@ -90,7 +93,7 @@ final class ShipLamps {
             double scale = ShipLampScale.of(ship, config);
             float maxReach = Math.max(15, Math.min(48, config.client.scaled_lamp_max_reach));
             for (Lamp lamp : kept) {
-                if (ownHue && now - lamp.hueTick >= HUE_TICKS) {
+                if (ownHue && lamp.absorb == 0 && now - lamp.hueTick >= HUE_TICKS) {
                     lamp.hueTick = now + (lamp.pos.hashCode() & 7);
                     lamp.hue = LightColors.ofLamp(level, lamp.pos);
                 }
@@ -125,9 +128,22 @@ final class ShipLamps {
 
     private static List<Lamp> scan(ShipRef ship, LivelyConfig config) {
         List<Lamp> lamps = new ArrayList<>();
-        ship.forEachBlock(state -> state.getLightEmission() > 0, (pos, state) -> {
+        // what each block state is, asked once a scan: {the level it gives light at, what it takes away}. The level is
+        // Colorful Lighting's for the block (0.9.0): an end gateway gives light for the game and none for Colorful Lighting,
+        // which makes it take light away instead, and so it does here
+        Map<BlockState, int[]> known = new java.util.IdentityHashMap<>();
+        java.util.function.Function<BlockState, int[]> what = state -> known.computeIfAbsent(state, s -> {
+            int absorb = LightColors.absorbOf(s);
+            return new int[]{absorb != 0 ? 0 : LightColors.levelOf(s), absorb};
+        });
+        ship.forEachBlock(state -> {
+            int[] is = what.apply(state);
+            return is[0] > 0 || is[1] != 0;
+        }, (pos, state) -> {
             if (state.is(Blocks.LIGHT) && !config.light_blocks_are_lamps) return;
-            lamps.add(new Lamp(pos.immutable(), state, state.getLightEmission()));
+            int[] is = what.apply(state);
+            if (is[1] != 0) lamps.add(new Lamp(pos.immutable(), state, is[1] >>> 24, is[1] & 0xFFFFFF));
+            else if (is[0] > 0) lamps.add(new Lamp(pos.immutable(), state, is[0], 0));
         });
         return lamps;
     }
@@ -152,6 +168,12 @@ final class ShipLamps {
         };
         BlockLightDefs.BlockLightData def = BlockLightDefs.get(lamp.state.getBlock());
         long key = (ship.id() << 24) ^ (lamp.pos.asLong() & 0xFFFFFFL) ^ 0x5A00000000000000L;
+        if (lamp.absorb != 0) {
+            // a block that takes light away (0.9.0): a light that absorbs, a level lost a block as its darkness is in the world
+            float stretch = ShipLampScale.stretch(lamp.emission, scale, maxReach);
+            return new DynamicLight(key, DynamicLight.Kind.SHIP_LAMP, mover, null, lamp.emission, net.cama.livelylighting.dynamiclighting.engine.LightData.ABSORB | lamp.absorb,
+                    LightShape.POINT, 0f, lamp.emission * stretch, Falloff.DIAMOND, -1, 0f, null, stretch);
+        }
         if (def != null && def.shape() == LightShape.SPOT && def.isLit(lamp.state)) {
             Direction facing = def.directionOf(lamp.state);
             if (facing != null) {

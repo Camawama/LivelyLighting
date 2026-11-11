@@ -19,7 +19,11 @@ public final class DynamicLight {
     }
 
     /** What the light is attached to; the owner key tells the fades and the renderers which light is which across ticks. */
-    public enum Kind { ENTITY, ITEM_ENTITY, SHIP_LAMP, CONTRAPTION_LAMP, SHIP_FIRE, FORCED, API, CLUSTER }
+    public enum Kind {
+        ENTITY, ITEM_ENTITY, SHIP_LAMP, CONTRAPTION_LAMP, SHIP_FIRE, FORCED, API, CLUSTER,
+        /** A lamp of the world, drawn on the blocks of the ships beside it alone (0.9.0, {@link WorldLamps}). */
+        WORLD_LAMP
+    }
 
     /** A light's level at a moment of the frame, for one that changes smoothly between ticks (a merged light easing in). */
     @FunctionalInterface
@@ -119,6 +123,8 @@ public final class DynamicLight {
     public double levelAt(double x, double y, double z) {
         // a light that absorbs is no light to anything that asks how bright a place is (0.8.0)
         if (net.cama.livelylighting.dynamiclighting.engine.LightData.isAbsorber(rgb)) return 0;
+        // nor is a lamp of the world's light on a ship: the world's own light has that lamp in it (0.9.0)
+        if (kind == Kind.WORLD_LAMP) return 0;
         double dx = x - pos.x, dy = y - pos.y, dz = z - pos.z;
         double d2 = dx * dx + dy * dy + dz * dz;
         if (d2 > range * range) return 0;

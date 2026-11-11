@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.9.0 — Unreleased
+
+### Added
+
+- **The world's lamps light the ships beside them, with the client module.** A Valkyrien Skies ship's blocks are kept,
+  and lit, far from where the ship is drawn, so a torch on the quay lit the quay and not the hull moored at it. The
+  server module puts a light block onto the ship for every such lamp; the client module had nothing in its place, and a
+  ship beside a lamp stayed dark. Now the light-giving blocks of the world within reach of a ship near the camera are
+  found (per chunk section, a palette test first, read again every two seconds; a lamp broken is gone at once), the
+  ones that reach the ship brightest are kept, and each is drawn as a light in the lamp's own colour on ships' blocks
+  alone: the world has that lamp's light already and is left as it is. The ship's own blocks are in the light's way and
+  its glass tints it, as with any dynamic light. `client.world_lamps_per_ship` (8, 0 to 32, 0 for off). Needs
+  `vs_support`, the shader renderer and Colorful Lighting 2.13.0 or newer (`DynamicLightSink.SHIPS_ONLY`); a lamp two
+  ships share is one light, and blacklights are left to their own field. Harness `ll_ship_world`: a deck two blocks from
+  a glowstone reads 165 of 255 at its near edge and 91 at its far edge, 0 and 1 without, and the floor of the world
+  reads the same either way.
+
+### Fixed
+
+- **An end gateway on a ship gave light instead of taking it.** A ship's lamps were its blocks that give light for the
+  game, at the level the game says. Colorful Lighting gives some of those no light of their own and makes them absorb
+  instead (its `light/emitters.json` and `light/absorbers.json`: an end gateway, an end portal), so placed in the world
+  the gateway darkened the room and on a ship it shone white at level 15. A ship's and a contraption's lamps now take
+  the level Colorful Lighting gives the block (2.13.0), and a block that absorbs is a light that absorbs: it takes the
+  block light round it as it does in the world, leaves the sky's, and takes from the dynamic lights on its own ship,
+  whose stored light its darkness has taken down already. With an older Colorful Lighting the lamps are as before. The
+  server module's light blocks still go by the game's level.
+
 ## 0.8.0 — Unreleased
 
 ### Added

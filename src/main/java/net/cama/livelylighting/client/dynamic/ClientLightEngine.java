@@ -58,6 +58,7 @@ public final class ClientLightEngine {
     private final Map<Long, Fade> fades = new HashMap<>();
     private final ShipLamps shipLamps = new ShipLamps();
     private final ContraptionLamps contraptionLamps = new ContraptionLamps();
+    private final WorldLamps worldLamps = new WorldLamps();
     private final ClientClusters clusters = new ClientClusters();
 
     /** A light held dark while Colorful Lighting builds the slab that says where its light may go, then let up. */
@@ -93,11 +94,17 @@ public final class ClientLightEngine {
         apiLast.clear();
         shipLamps.forget();
         contraptionLamps.forget();
+        worldLamps.forget();
         clusters.forget();
         holds.clear();
         ShipBlocks.forget();
         MapRefresh.forget();
         lights = Collections.emptyList();
+    }
+
+    /** How many lamps of the world light ships now (for tests). */
+    public int worldLampCount() {
+        return worldLamps.count();
     }
 
     /** How many merged lights there are now, the ones easing out included (for tests). */
@@ -152,13 +159,15 @@ public final class ClientLightEngine {
         }
         shipLamps.collect(level, camera, config, falloff, out);
         contraptionLamps.collect(level, camera, config, falloff, out);
+        // the world's lamps for the ships beside them (0.9.0)
+        worldLamps.collect(level, camera, config, out);
         collectApi(level, config, falloff, out);
         // lights near each other merge into one larger light (0.6.3)
         clusters.collect(config, falloff, camera, level, out);
         // a new light waits dark for the slab that keeps it behind walls (0.6.4)
         hold(config, out);
         // the ships' blocks for the volume the light is propagated through (Colorful Lighting's worker reads the snapshot)
-        ShipBlocks.snapshot(level, shipLamps, out);
+        ShipBlocks.snapshot(level, shipLamps, worldLamps, out);
         // fades that were not wanted this tick run out
         fades.entrySet().removeIf(e -> tick - e.getValue().lastSeen > 1200);
         lights = Collections.unmodifiableList(out);

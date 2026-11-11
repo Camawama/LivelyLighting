@@ -213,6 +213,12 @@ public class LivelyConfig {
         // from the ship, so without it nothing showed where the beam came from. The frame and its item are drawn lit by it
         // too (lit_carriers), and the ship's blocks beside the frame take the spill as any dim light.
         public int headlight_spill = 10;
+        // Shader renderer, with vs_support and Colorful Lighting 2.13.0 or newer: how many lamps of the world light one
+        // Valkyrien Skies ship beside them, the ones that reach it brightest first, 0 to 32, 0 for off (0.9.0). A ship's
+        // blocks are kept and lit far from where it is drawn, so without this a torch on the quay lit the quay and not the
+        // hull moored at it. Each is a dynamic light drawn on ships' blocks alone, among the shader_max_lights nearest
+        // the camera. The server module does the same with light blocks (sixteen a ship).
+        public int world_lamps_per_ship = 8;
         // How far that spill reaches, in blocks (0.7.2): a headlight points away, and what leaks from it lights only what is
         // right beside it. The spill is at its level at the frame and gone this far from it.
         public double headlight_spill_reach = 4.0;

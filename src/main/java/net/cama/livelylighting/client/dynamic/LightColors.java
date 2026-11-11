@@ -19,7 +19,7 @@ import java.lang.invoke.MethodType;
  */
 final class LightColors {
     private static final Logger LOGGER = LogUtils.getLogger();
-    private static MethodHandle item, entity, block, lamp;
+    private static MethodHandle item, entity, block, lamp, blockLevel, blockAbsorb;
     private static boolean tried;
 
     private LightColors() {}
@@ -42,6 +42,12 @@ final class LightColors {
                 lamp = lookup.findStatic(dyn, "lampLightColor", MethodType.methodType(int.class, net.minecraft.world.level.Level.class, net.minecraft.core.BlockPos.class));
             } catch (NoSuchMethodException e) {
                 lamp = null;
+            }
+            try {
+                blockLevel = lookup.findStatic(dyn, "blockLightLevel", MethodType.methodType(int.class, BlockState.class));
+                blockAbsorb = lookup.findStatic(dyn, "blockAbsorption", MethodType.methodType(int.class, BlockState.class));
+            } catch (NoSuchMethodException e) {
+                blockLevel = blockAbsorb = null; // Colorful Lighting before 2.13.0: every block gives the light it says it gives
             }
         } catch (ReflectiveOperationException | LinkageError e) {
             LOGGER.info("[LivelyLighting] this Colorful Lighting gives dynamic lights no colours ({}); they are white", e.toString());
@@ -81,6 +87,34 @@ final class LightColors {
             return (int) lamp.invoke(level, pos);
         } catch (Throwable t) {
             return -1;
+        }
+    }
+
+    /**
+     * The level a block gives light at (0.9.0): Colorful Lighting's for it where it says one (2.13.0; its
+     * {@code light/emitters.json} gives an end gateway none), else the block's own.
+     */
+    static int levelOf(BlockState state) {
+        bind();
+        if (blockLevel == null || state == null) return state == null ? 0 : state.getLightEmission();
+        try {
+            return (int) blockLevel.invoke(state);
+        } catch (Throwable t) {
+            return state.getLightEmission();
+        }
+    }
+
+    /**
+     * What a block takes away for Colorful Lighting (2.13.0, its {@code light/absorbers.json}: an end gateway, an end
+     * portal): the level in the top byte over the channels taken as 0xRRGGBB, or 0 for a block that absorbs nothing.
+     */
+    static int absorbOf(BlockState state) {
+        bind();
+        if (blockAbsorb == null || state == null) return 0;
+        try {
+            return (int) blockAbsorb.invoke(state);
+        } catch (Throwable t) {
+            return 0;
         }
     }
 
