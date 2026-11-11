@@ -105,19 +105,28 @@ public class LightCalculator {
         return new LightData(level, false, Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
     }
 
-    /** The optional shape keys of a definition: {@code shape}, {@code cone_degrees}, {@code range}, {@code color}. */
+    /** The optional shape keys of a definition: {@code shape}, {@code cone_degrees}, {@code range}, {@code color}, {@code color_nbt}. */
     static LightData withShape(JsonObject json, int level, boolean sensitive, List<ParticleType<?>> particles, List<SoundData> sounds, List<SoundData> extinguish) {
         LightShape shape = json.has("shape") ? LightShape.parse(json.get("shape").getAsString(), LightShape.POINT) : LightShape.POINT;
         float cone = json.has("cone_degrees") ? json.get("cone_degrees").getAsFloat() : 0f;
         float range = json.has("range") ? json.get("range").getAsFloat() : 0f;
         int color = json.has("color") ? parseColor(json.get("color").getAsString()) : -1;
-        return new LightData(level, sensitive, particles, sounds, extinguish, shape, cone, range, color);
+        String colorNbt = json.has("color_nbt") && json.get("color_nbt").isJsonPrimitive() ? json.get("color_nbt").getAsString() : null;
+        return new LightData(level, sensitive, particles, sounds, extinguish, shape, cone, range, color, colorNbt);
     }
 
-    /** {@code #RRGGBB}, {@code RRGGBB} or {@code 0xRRGGBB}; -1 for anything else (the default colour). */
+    /**
+     * {@code #RRGGBB}, {@code RRGGBB} or {@code 0xRRGGBB}; since 0.7.0 also {@code uv}, {@code blacklight} or
+     * {@code ultraviolet} ({@link LightData#BLACKLIGHT}) and the sixteen dye names ({@code red}, {@code light_blue}, ...);
+     * -1 for anything else (the default colour).
+     */
     public static int parseColor(String text) {
         if (text == null) return -1;
         String s = text.trim();
+        String name = s.toLowerCase(java.util.Locale.ROOT);
+        if (name.equals("uv") || name.equals("blacklight") || name.equals("ultraviolet")) return LightData.BLACKLIGHT;
+        net.minecraft.world.item.DyeColor dye = net.minecraft.world.item.DyeColor.byName(name, null);
+        if (dye != null) return dye.getTextColor() & 0xFFFFFF;
         if (s.startsWith("#")) s = s.substring(1);
         else if (s.startsWith("0x") || s.startsWith("0X")) s = s.substring(2);
         if (s.length() != 6) return -1;
@@ -413,7 +422,7 @@ public class LightCalculator {
         return config.enchanted_items_glow && stack.isEnchanted() ? ENCHANTED_LIGHT_DATA : EMPTY_LIGHT_DATA;
     }
 
-    /** The definition for a stack: one keyed to its NBT first (0.6.2), else the item's. */
+    /** The definition for a stack: one keyed to its NBT first (0.6.2), else the item's; in the colour its tag names (0.7.0). */
     private static LightData lookupStack(ItemStack stack, LivelyConfig config) {
         if (!nbtItems.isEmpty()) {
             ResourceLocation key = ForgeRegistries.ITEMS.getKey(stack.getItem());
@@ -421,11 +430,50 @@ public class LightCalculator {
             if (defs != null) {
                 net.minecraft.nbt.CompoundTag tag = stack.getTag();
                 for (NbtLightData def : defs) {
-                    if (net.minecraft.nbt.NbtUtils.compareNbt(def.required, tag, true)) return def.data;
+                    if (net.minecraft.nbt.NbtUtils.compareNbt(def.required, tag, true)) return tinted(def.data, stack);
                 }
             }
         }
-        return lookupItem(stack.getItem(), config);
+        return tinted(lookupItem(stack.getItem(), config), stack);
+    }
+
+    /** What a tag's colour names came to, so a held stack's is parsed once. */
+    private static final Map<String, Integer> tagColours = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * A definition in the colour its stack names (0.7.0): the definition's {@code color_nbt} is a key of the stack's tag,
+     * holding a colour as text (whatever {@link #parseColor} reads: {@code "#FF0000"}, {@code "red"}, {@code "uv"}) or as a
+     * number ({@code 0xRRGGBB}, {@link LightData#BLACKLIGHT} for ultraviolet). Without the key in the tag, or with a
+     * value that is no colour, the definition's own colour stays.
+     */
+    private static LightData tinted(LightData data, ItemStack stack) {
+        if (data.colorNbt == null || data.level <= 0) return data;
+        net.minecraft.nbt.CompoundTag tag = stack.getTag();
+        if (tag == null) return data;
+        net.minecraft.nbt.Tag value = tag.get(data.colorNbt);
+        if (value == null) return data;
+        int color;
+        if (value instanceof net.minecraft.nbt.NumericTag number) {
+            int n = number.getAsInt();
+            color = n == LightData.BLACKLIGHT ? n : n < 0 ? -1 : n & 0xFFFFFF;
+        } else {
+            String text = value.getAsString();
+            Integer known = tagColours.get(text);
+            if (known == null) {
+                if (tagColours.size() > 1024) tagColours.clear();
+                known = parseColor(text);
+                tagColours.put(text, known);
+            }
+            color = known;
+        }
+        return color < 0 ? data : data.withColor(color);
+    }
+
+    /** The colour a stack's definition gives its light, or -1 where it leaves it to Colorful Lighting. */
+    public static int definedColor(ItemStack stack, LivelyConfig config) {
+        if (stack == null || stack.isEmpty() || stack.getItem() == Items.LIGHT) return -1;
+        LightData data = lookupStack(stack, config);
+        return data.level > 0 ? data.color : -1;
     }
 
     private static LightData lookupItem(Item item, LivelyConfig config) {

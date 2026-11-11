@@ -24,11 +24,40 @@ public class LightData {
     public final float coneDegrees;
     /** Reach in blocks; 0 means the default for the shape (a point's level, a spot's {@link LightShape#DEFAULT_SPOT_RANGE}). */
     public final float range;
-    /** {@code 0xRRGGBB}, or -1 for the colour Colorful Lighting gives the item or block (white without it). */
+    /**
+     * {@code 0xRRGGBB}, {@link #BLACKLIGHT} for ultraviolet, or -1 for the colour Colorful Lighting gives the item or block
+     * (white without it).
+     */
     public final int color;
+    /**
+     * The key in a stack's tag that names this light's colour (0.7.0, {@code "color_nbt"} in an item definition), or null:
+     * one item, a colour a stack. A stack without the key keeps {@link #color}.
+     */
+    public final String colorNbt;
+    /** This definition in each colour its stacks have named, made once a colour. */
+    private final java.util.concurrent.ConcurrentHashMap<Integer, LightData> tinted = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * Ultraviolet (0.7.0): the colour of a blacklight, the value Colorful Lighting 2.11.0 takes for one
+     * ({@code DynamicLightSink.BLACKLIGHT}). It shows as a dim violet and makes saturated colours glow.
+     */
+    public static final int BLACKLIGHT = 0x1000000;
+    /** What a blacklight is drawn as where nothing can make colours glow: its own violet. */
+    public static final int BLACKLIGHT_SHOWN = 0x6020FF;
+
+    /** A light's colour as plain {@code 0xRRGGBB}: a blacklight's violet, any other colour itself, -1 kept. */
+    public static int shown(int rgb) {
+        return rgb == BLACKLIGHT ? BLACKLIGHT_SHOWN : rgb;
+    }
 
     public LightData(int level, boolean waterSensitive, List<ParticleType<?>> particles, List<SoundData> sounds, List<SoundData> extinguishSounds,
                      LightShape shape, float coneDegrees, float range, int color) {
+        this(level, waterSensitive, particles, sounds, extinguishSounds, shape, coneDegrees, range, color, null);
+    }
+
+    public LightData(int level, boolean waterSensitive, List<ParticleType<?>> particles, List<SoundData> sounds, List<SoundData> extinguishSounds,
+                     LightShape shape, float coneDegrees, float range, int color, String colorNbt) {
+        this.colorNbt = colorNbt == null || colorNbt.isBlank() ? null : colorNbt.trim();
         this.level = level;
         this.waterSensitive = waterSensitive;
         this.particles = particles;
@@ -50,7 +79,14 @@ public class LightData {
 
     /** The same definition at another level (a fade, a forced level). */
     public LightData withLevel(int newLevel) {
-        return new LightData(newLevel, waterSensitive, particles, sounds, extinguishSounds, shape, coneDegrees, range, color);
+        return new LightData(newLevel, waterSensitive, particles, sounds, extinguishSounds, shape, coneDegrees, range, color, colorNbt);
+    }
+
+    /** The same definition in another colour (the one a stack's tag names); itself for its own colour. */
+    public LightData withColor(int newColor) {
+        if (newColor == color) return this;
+        if (tinted.size() > 512) tinted.clear(); // colours without end (a script cycling hues): start over
+        return tinted.computeIfAbsent(newColor, c -> new LightData(level, waterSensitive, particles, sounds, extinguishSounds, shape, coneDegrees, range, c, colorNbt));
     }
 
     /** The reach in blocks this light is drawn to. */
@@ -69,6 +105,7 @@ public class LightData {
                Float.compare(coneDegrees, that.coneDegrees) == 0 &&
                Float.compare(range, that.range) == 0 &&
                color == that.color &&
+               Objects.equals(colorNbt, that.colorNbt) &&
                Objects.equals(particles, that.particles) &&
                Objects.equals(sounds, that.sounds) &&
                Objects.equals(extinguishSounds, that.extinguishSounds);
@@ -76,6 +113,6 @@ public class LightData {
 
     @Override
     public int hashCode() {
-        return Objects.hash(level, waterSensitive, particles, sounds, extinguishSounds, shape, coneDegrees, range, color);
+        return Objects.hash(level, waterSensitive, particles, sounds, extinguishSounds, shape, coneDegrees, range, color, colorNbt);
     }
 }

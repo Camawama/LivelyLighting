@@ -26,6 +26,8 @@ final class ColorfulBridge {
     private static MethodHandle fieldEnabled, fieldHolds, blocksMoved, setUpdateInterval;
     /** Whether Colorful Lighting was last told to bake the lights into meshes (then no light has a slab). */
     private static boolean meshLighting = true;
+    /** Whether this Colorful Lighting knows a blacklight (2.11.0, {@code DynamicLightSink.BLACKLIGHT}); an older one is given its violet. */
+    private static boolean blacklights;
     private static Boolean sentTransmission, sentPropagation;
     private static int sentLights = -1, sentBudget = -1, sentInterval = -1;
     private static float sentDistance = -1f;
@@ -52,6 +54,11 @@ final class ColorfulBridge {
             spot = lookup.findVirtual(sinkType, "spot", MethodType.methodType(void.class, long.class, double.class, double.class, double.class,
                     double.class, double.class, double.class, float.class, float.class, float.class, int.class, float.class));
             MethodHandle register = lookup.findStatic(compat, "registerExternalProvider", MethodType.methodType(void.class, providerType));
+            try {
+                blacklights = sinkType.getField("BLACKLIGHT").getInt(null) == net.cama.livelylighting.dynamiclighting.engine.LightData.BLACKLIGHT;
+            } catch (ReflectiveOperationException | RuntimeException e) {
+                blacklights = false;
+            }
             try {
                 setMeshLighting = lookup.findStatic(compat, "setExternalMeshLighting", MethodType.methodType(void.class, boolean.class));
             } catch (NoSuchMethodException e) {
@@ -321,17 +328,18 @@ final class ColorfulBridge {
         List<DynamicLight> lights = engine.lights();
         for (DynamicLight light : lights) {
             Vec3 p = light.mover.at(partialTick);
+            int rgb = blacklights ? light.rgb : net.cama.livelylighting.dynamiclighting.engine.LightData.shown(light.rgb);
             if (light.isSpot()) {
                 Vec3 d = light.direction.at(partialTick);
-                spot.invoke(sink, light.ownerKey, p.x, p.y, p.z, d.x, d.y, d.z, light.outerDegrees, light.innerDegrees(), light.levelAtFrame(partialTick), light.rgb, light.range);
+                spot.invoke(sink, light.ownerKey, p.x, p.y, p.z, d.x, d.y, d.z, light.outerDegrees, light.innerDegrees(), light.levelAtFrame(partialTick), rgb, light.range);
             } else if (light.stretch == 1f) {
-                point.invoke(sink, light.ownerKey, p.x, p.y, p.z, light.levelAtFrame(partialTick), light.rgb, light.falloff.ordinal(), light.range);
+                point.invoke(sink, light.ownerKey, p.x, p.y, p.z, light.levelAtFrame(partialTick), rgb, light.falloff.ordinal(), light.range);
             } else if (pointStretched != null) {
-                pointStretched.invoke(sink, light.ownerKey, p.x, p.y, p.z, light.levelAtFrame(partialTick), light.rgb, light.falloff.ordinal(), light.range, light.stretch);
+                pointStretched.invoke(sink, light.ownerKey, p.x, p.y, p.z, light.levelAtFrame(partialTick), rgb, light.falloff.ordinal(), light.range, light.stretch);
             } else {
                 // a Colorful Lighting before 2.10.6 draws a level a block: the lamp as it is on a ship at its own size
                 float lvl = light.levelAtFrame(partialTick);
-                point.invoke(sink, light.ownerKey, p.x, p.y, p.z, lvl, light.rgb, light.falloff.ordinal(), Math.max(1f, lvl));
+                point.invoke(sink, light.ownerKey, p.x, p.y, p.z, lvl, rgb, light.falloff.ordinal(), Math.max(1f, lvl));
             }
         }
     }

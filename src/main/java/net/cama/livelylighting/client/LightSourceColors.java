@@ -241,6 +241,8 @@ public final class LightSourceColors {
                 continue;
             }
             if (c < 0) continue;
+            // a light block can only be a colour: a blacklight's is its violet
+            c = net.cama.livelylighting.dynamiclighting.engine.LightData.shown(c);
             int sourceLevel = LightSources.levelOf(sources[i]);
             if (sourceLevel <= 0) sourceLevel = 15; // an older server: every source at full
             brightest = Math.max(brightest, sourceLevel);
@@ -317,7 +319,10 @@ public final class LightSourceColors {
     private static int stackColour(Entity entity, EquipmentSlot slot) throws Throwable {
         if (!(entity instanceof LivingEntity living)) return -1;
         ItemStack stack = living.getItemBySlot(slot);
-        return stack.isEmpty() ? -1 : (int) itemColor.invokeExact(stack);
+        if (stack.isEmpty()) return -1;
+        // the colour its definition gives it (a flashlight's, by its tag since 0.7.0), then Colorful Lighting's for the item
+        int own = net.cama.livelylighting.dynamiclighting.engine.LightCalculator.definedColor(stack, net.cama.livelylighting.LivelyConfig.get());
+        return own >= 0 ? own : (int) itemColor.invokeExact(stack);
     }
 
     /** The first worn curio Colorful Lighting knows a colour for (a lantern on a belt), else none. */

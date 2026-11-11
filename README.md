@@ -43,14 +43,21 @@ world the host's game is the server, and its file is the one read.
 A definition (item, entity or block) may give its light a `shape`: `point` (all round, vanilla's light) or `spot` (a cone: a
 headlight on a ship or contraption, a flashlight in hand, pointing where its holder looks or where the block faces), with
 `cone_degrees` (the full outer angle, default 40; the inner, fully lit angle is 60 % of it), `range` (blocks; default the level
-for a point, 32 for a spot) and `color` (`#RRGGBB`; default Colorful Lighting's colour for the item or block, white without
-it). The server module places every shape as a point light of its level; the client module draws the shape. `block_definitions/`
+for a point, 32 for a spot) and `color` (`#RRGGBB`, a dye's name such as `light_blue`, or `uv` for a blacklight; default
+Colorful Lighting's colour for the item or block, white without it). The server module places every shape as a point light of its level; the client module draws the shape. `block_definitions/`
 is new: `block_id` (or `regex:`), `shape`, `cone_degrees`, `range`, `color`, `direction` (`facing` for the block's facing
 property, else a fixed direction such as `north`), `lit_property` (a boolean block property that must be true, such as `lit`)
 and `light_level` (default the block's emission). The default set makes `minecraft:end_rod` a headlight: a 30-degree cone of
 range 32 along its rod. A block in `#livelylighting:headlights` is a headlight with the default cone when it has no definition;
 an item in `#livelylighting:flashlights` a flashlight. An item definition with `"nbt": {"on": true}` applies only to stacks whose
 tag holds those values (a flashlight a script switches on and off by its NBT); one without `nbt` applies to every stack of the item.
+
+One item can shine in a colour per stack: an item definition with `"color_nbt": "color"` reads its light's colour from that key
+of the stack's tag, as text (`"#00FFAA"`, `"red"`, `"uv"`) or as a number (`0xRRGGBB`). A stack without the key, or with a value
+that is no colour, keeps the definition's own `color`. `/give @s minecraft:spyglass{color:"red"}` and `{color:"uv"}` are then a
+red flashlight and a blacklight of the same item. A blacklight (`uv`, `blacklight` or `ultraviolet`) needs Colorful Lighting
+2.11.0 or later on the client: its light is a dim violet that makes saturated colours glow. With an older Colorful Lighting, and
+as the server module's light blocks, it is a plain violet light.
 
 To try a flashlight, give any item a definition with a shape: a file `config/livelylighting/item_definitions/spyglass_flashlight.json` with
 `{"item_id": "minecraft:spyglass", "light_level": 14, "shape": "spot", "cone_degrees": 35, "range": 32, "color": "#FFF2CC"}` makes a held

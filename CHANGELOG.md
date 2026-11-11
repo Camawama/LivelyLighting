@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.7.0 — Unreleased
+
+### Added
+
+- **One item, a light colour per stack.** An item definition with `"color_nbt": "color"` reads its light's colour from
+  that key of the stack's tag, as text (`"#00FFAA"`, a dye's name such as `"red"` or `"light_blue"`, `"uv"`) or as a
+  number (`0xRRGGBB`). A stack without the key, or with a value that is no colour, keeps the definition's own `color`.
+  `/give @s kubejs:flashlight{color:"red"}` and `{color:"uv"}` are a red flashlight and a blacklight of the same item.
+  Held items, dropped items, items in frames and on armor stands all follow it.
+- **A definition's `color` takes names.** The sixteen dye names and `uv` (also `blacklight`, `ultraviolet`) beside
+  `#RRGGBB`.
+- **Blacklights** (the client module needs Colorful Lighting 2.11.0). A light whose colour is `uv` is handed to Colorful
+  Lighting as a blacklight: a dim violet light that makes saturated blocks glow in their own colour, as a point or as a
+  flashlight's beam. With an older Colorful Lighting, and as the server module's light blocks, it is a plain violet
+  light. A blacklight is never merged with the lights near it (`client.cluster_merging`): a merged light has one colour,
+  and a blacklight is not a colour.
+
 ## 0.6.8 — Unreleased
 
 ### Added

@@ -281,7 +281,7 @@ public final class ClientLightEngine {
             if (l.glowEntity < 0 || l.glowLevel <= best) continue;
             if (l.glowEntity == id || rides(entity, l.glowEntity)) {
                 best = l.glowLevel;
-                rgb = l.rgb < 0 ? 0xFFFFFF : l.rgb & 0xFFFFFF;
+                rgb = l.rgb < 0 ? 0xFFFFFF : LightData.shown(l.rgb) & 0xFFFFFF;
             }
         }
         int level = Math.min(15, Math.round(best));

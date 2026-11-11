@@ -56,9 +56,11 @@ final class SpotBeams {
                 buf.begin(VertexFormat.Mode.TRIANGLES, DefaultVertexFormat.POSITION_COLOR);
                 begun = true;
             }
-            int rgb = light.rgb < 0 ? 0xFFF4DC : light.rgb;
+            boolean blacklight = light.rgb == net.cama.livelylighting.dynamiclighting.engine.LightData.BLACKLIGHT;
+            int rgb = light.rgb < 0 ? 0xFFF4DC : net.cama.livelylighting.dynamiclighting.engine.LightData.shown(light.rgb);
             float r = ((rgb >> 16) & 0xFF) / 255f, g = ((rgb >> 8) & 0xFF) / 255f, b = (rgb & 0xFF) / 255f;
-            float strength = Math.min(1f, light.level / 15f);
+            // ultraviolet is hardly seen in the air
+            float strength = Math.min(1f, light.level / 15f) * (blacklight ? 0.35f : 1f);
             double range = Math.max(2.0, light.range);
             double halfAngle = Math.toRadians(light.outerDegrees * 0.5 * 0.8);
             double endRadius = Math.tan(halfAngle) * range;

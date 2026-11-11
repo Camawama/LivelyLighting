@@ -121,6 +121,8 @@ final class ClientClusters {
     /** Whether a light can take part in merging: a point light at its full reach. */
     private static boolean merges(DynamicLight light) {
         if (light.isSpot() || light.level <= 0f) return false;
+        // a blacklight is no colour to blend with the lights beside it
+        if (light.rgb == net.cama.livelylighting.dynamiclighting.engine.LightData.BLACKLIGHT) return false;
         if (light.range < light.level - 0.01f) return false; // a light cut short on purpose
         if (light.stretch != 1f) return false; // a lamp on a ship at another size keeps its own reach
         return light.kind != DynamicLight.Kind.CLUSTER;
