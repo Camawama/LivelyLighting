@@ -1,6 +1,8 @@
 package net.cama.livelylighting.source;
 
 import it.unimi.dsi.fastutil.ints.IntArrayFIFOQueue;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import net.cama.livelylighting.LivelyConfig;
 import net.cama.livelylighting.dynamiclighting.engine.LightCalculator;
 import net.cama.livelylighting.dynamiclighting.engine.LightData;
@@ -36,6 +38,7 @@ import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -62,6 +65,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * second old; an answer asked from another thread, or before its field's turn, is the straight count. A spot light (another
  * mod's, or a held flashlight) counts inside its cone only, dimming along its beam as the client draws it, and where a
  * straight line from it is clear. A ship's blocks are not in the world and stop nothing.
+ *
+ * <p>A level counts at most {@code gameplay_light_max_sources} lights, and a question about a place goes to the lights
+ * that can reach its chunk section alone (0.9.1, {@link Buckets}): the list had no end and every question went through
+ * all of it, so thousands of light-giving item frames in one room made every light check of the world that slow.
  */
 public final class GameplayLights {
     /** The client's answer for its own level (what it draws), set by the client module. */
@@ -77,6 +84,10 @@ public final class GameplayLights {
     private static final int FIELD_TICKS = 20;
     /** The farthest a field reaches: the strongest merged light. */
     private static final int MAX_REACH = (int) LightClusters.MAX_STRENGTH;
+    /** This few lights are asked one by one as before: listing them by section would cost more than it saves. */
+    private static final int FEW_LIGHTS = 8;
+    /** A light reaching more chunk sections than this (a long beam) is not listed by section but asked everywhere. */
+    private static final int WIDE_SECTIONS = 64;
     private static final Direction[] DIRECTIONS = Direction.values();
     private static volatile @Nullable ClientAnswer clientAnswer;
     private static final Map<LevelLightEngine, ServerLevel> SERVER_ENGINES = Collections.synchronizedMap(new WeakHashMap<>());
@@ -96,6 +107,8 @@ public final class GameplayLights {
         final float range, outerCos, innerCos;
         /** Where its light goes, once something asked; null until then. */
         volatile @Nullable Field field;
+        /** The server thread's scratch while the lights over the cap are sorted: the squared distance to the nearest player. */
+        double fromPlayer;
 
         Src(double x, double y, double z, float level) {
             this(x, y, z, level, null, 0f, 0f);
@@ -151,9 +164,95 @@ public final class GameplayLights {
         }
     }
 
+    /**
+     * A level's lights by the chunk sections their light can reach, so a question about a place asks those alone. Made
+     * with the lights every tick and not changed after, read from any thread.
+     */
+    private static final class Buckets {
+        private static final Long2ObjectOpenHashMap<Src[]> NO_SECTIONS = new Long2ObjectOpenHashMap<>();
+        static final Buckets EMPTY = new Buckets(NO_SECTIONS, NONE);
+        private final Long2ObjectOpenHashMap<Src[]> bySection;
+        /** The lights asked everywhere (every section's array ends with them): the answer for a section without an array. */
+        private final Src[] everywhere;
+
+        private Buckets(Long2ObjectOpenHashMap<Src[]> bySection, Src[] everywhere) {
+            this.bySection = bySection;
+            this.everywhere = everywhere;
+        }
+
+        /** The lights that can reach the block's chunk section. */
+        Src[] reaching(int bx, int by, int bz) {
+            Src[] here = bySection.get(SectionPos.asLong(bx >> 4, by >> 4, bz >> 4));
+            return here != null ? here : everywhere;
+        }
+
+        static Buckets of(Src[] lights) {
+            if (lights.length == 0) return EMPTY;
+            if (lights.length <= FEW_LIGHTS) return new Buckets(NO_SECTIONS, lights);
+            Long2ObjectOpenHashMap<List<Src>> lists = new Long2ObjectOpenHashMap<>();
+            List<Src> wide = new ArrayList<>();
+            for (Src s : lights) {
+                // the blocks its light can reach, and one to spare
+                int x0, y0, z0, x1, y1, z1;
+                if (s.spot) {
+                    // inside its cone: along its beam, and as far to the sides as the cone is wide at its end
+                    boolean cone = s.outerCos > 0f;
+                    double side = cone ? s.range * Math.sqrt(Math.max(0.0, 1.0 - (double) s.outerCos * s.outerCos)) : s.range;
+                    double ex = cone ? s.dx * s.range : 0.0, ey = cone ? s.dy * s.range : 0.0, ez = cone ? s.dz * s.range : 0.0;
+                    x0 = (int) Math.floor(Math.min(s.px, s.px + ex) - side) - 1;
+                    x1 = (int) Math.floor(Math.max(s.px, s.px + ex) + side) + 1;
+                    y0 = (int) Math.floor(Math.min(s.py, s.py + ey) - side) - 1;
+                    y1 = (int) Math.floor(Math.max(s.py, s.py + ey) + side) + 1;
+                    z0 = (int) Math.floor(Math.min(s.pz, s.pz + ez) - side) - 1;
+                    z1 = (int) Math.floor(Math.max(s.pz, s.pz + ez) + side) + 1;
+                } else {
+                    int reach = (int) Math.ceil(s.level) + 1;
+                    x0 = s.cx - reach;
+                    x1 = s.cx + reach;
+                    y0 = s.cy - reach;
+                    y1 = s.cy + reach;
+                    z0 = s.cz - reach;
+                    z1 = s.cz + reach;
+                }
+                int sx0 = x0 >> 4, sx1 = x1 >> 4, sy0 = y0 >> 4, sy1 = y1 >> 4, sz0 = z0 >> 4, sz1 = z1 >> 4;
+                int nx = sx1 - sx0 + 1, ny = sy1 - sy0 + 1, nz = sz1 - sz0 + 1;
+                if (nx > WIDE_SECTIONS || ny > WIDE_SECTIONS || nz > WIDE_SECTIONS || nx * ny * nz > WIDE_SECTIONS) {
+                    wide.add(s);
+                    continue;
+                }
+                for (int sx = sx0; sx <= sx1; sx++) {
+                    for (int sy = sy0; sy <= sy1; sy++) {
+                        for (int sz = sz0; sz <= sz1; sz++) {
+                            // a point light loses a level a block: not the sections its box only touches at a corner
+                            if (!s.spot && away(s.cx, sx) + away(s.cy, sy) + away(s.cz, sz) >= s.level + 1f) continue;
+                            long key = SectionPos.asLong(sx, sy, sz);
+                            List<Src> list = lists.get(key);
+                            if (list == null) lists.put(key, list = new ArrayList<>(4));
+                            list.add(s);
+                        }
+                    }
+                }
+            }
+            Long2ObjectOpenHashMap<Src[]> bySection = new Long2ObjectOpenHashMap<>(lists.size());
+            for (Long2ObjectMap.Entry<List<Src>> e : lists.long2ObjectEntrySet()) {
+                List<Src> list = e.getValue();
+                list.addAll(wide);
+                bySection.put(e.getLongKey(), list.toArray(NONE));
+            }
+            return new Buckets(bySection, wide.isEmpty() ? NONE : wide.toArray(NONE));
+        }
+
+        /** Blocks from the middle of a cell to the nearest block of a chunk section along one axis; 0 inside it. */
+        private static float away(int cell, int section) {
+            int low = section << 4;
+            return cell < low ? low - (cell + 0.5f) : cell > low + 15 ? (cell + 0.5f) - (low + 16) : 0f;
+        }
+    }
+
     /** A level's lights: published every tick, read from any thread; the rest is the server thread's. */
     private static final class Dim {
         volatile Src[] lights = NONE;
+        volatile Buckets buckets = Buckets.EMPTY;
         volatile boolean occlusion;
         @Nullable List<Src> entities;
         Map<Long, Field> fields = new HashMap<>();
@@ -203,6 +302,7 @@ public final class GameplayLights {
         }
         Dim dim = DIMS.computeIfAbsent(dimension, k -> new Dim());
         boolean occlusion = config.gameplay_light_occlusion;
+        int cap = config.gameplay_light_max_sources;
         List<Src> found = new ArrayList<>();
         List<Player> players = new ArrayList<>(level.players());
         for (Player p : players) {
@@ -210,6 +310,7 @@ public final class GameplayLights {
             LightData data = LightCalculator.getBestLightLevel(p, level, config);
             if (data.level > 0) found.add(source(p, new Vec3(p.getX(), p.getEyeY(), p.getZ()), data, occlusion));
         }
+        int own = found.size();
         // the other entities every few ticks: a mob on fire, a dropped torch, an item frame with a lantern
         List<Src> entities = dim.entities;
         if (entities == null || level.getGameTime() % ENTITY_SCAN_TICKS == 0) {
@@ -238,6 +339,7 @@ public final class GameplayLights {
                     if (data.level > 0) entities.add(source(entity, at.add(0, entity.getEyeHeight(), 0), data, occlusion));
                 }
             }
+            if (cap > 0) keepNearest(entities, 0, cap, players);
             dim.entities = entities;
         }
         found.addAll(entities);
@@ -255,6 +357,8 @@ public final class GameplayLights {
                 }
             }
         }
+        // the players' own lights always count; the others fill what the cap leaves, the nearest to a player first
+        if (cap > 0) keepNearest(found, own, Math.max(0, cap - own), players);
         // lights near each other count as the merged light the client draws over them (0.6.3)
         if (config.experimental.cluster_growing && config.experimental.cluster_merge_distance > 0) {
             List<Src> points = new ArrayList<>();
@@ -292,7 +396,28 @@ public final class GameplayLights {
         dim.fields = kept;
         dim.fills = 0;
         dim.occlusion = occlusion;
-        dim.lights = found.isEmpty() ? NONE : found.toArray(NONE);
+        Src[] lights = found.isEmpty() ? NONE : found.toArray(NONE);
+        dim.buckets = Buckets.of(lights);
+        dim.lights = lights;
+    }
+
+    /**
+     * Keeps the {@code keep} lights from index {@code from} on that are nearest to a player and drops the others
+     * ({@code gameplay_light_max_sources}).
+     */
+    private static void keepNearest(List<Src> lights, int from, int keep, List<Player> players) {
+        List<Src> rest = lights.subList(from, lights.size());
+        if (rest.size() <= keep) return;
+        for (Src s : rest) {
+            double nearest = Double.MAX_VALUE;
+            for (Player p : players) {
+                double dx = p.getX() - s.px, dy = p.getY() - s.py, dz = p.getZ() - s.pz;
+                nearest = Math.min(nearest, dx * dx + dy * dy + dz * dz);
+            }
+            s.fromPlayer = nearest;
+        }
+        rest.sort(Comparator.comparingDouble(s -> s.fromPlayer));
+        rest.subList(keep, rest.size()).clear();
     }
 
     /** A source from an entity's light: a point, or with occlusion a held spot light along where its holder looks. */
@@ -319,11 +444,13 @@ public final class GameplayLights {
     public static float levelAt(ServerLevel level, double x, double y, double z) {
         Dim dim = DIMS.get(level.dimension());
         if (dim == null) return 0f;
-        Src[] lights = dim.lights;
+        if (dim.lights.length == 0) return 0f;
+        int bx = (int) Math.floor(x), by = (int) Math.floor(y), bz = (int) Math.floor(z);
+        // only the lights that can reach this block's chunk section
+        Src[] lights = dim.buckets.reaching(bx, by, bz);
         if (lights.length == 0) return 0f;
         boolean occlusion = dim.occlusion;
         boolean serverThread = occlusion && level.getServer().isSameThread();
-        int bx = (int) Math.floor(x), by = (int) Math.floor(y), bz = (int) Math.floor(z);
         float best = 0f;
         for (Src s : lights) {
             if (s.spot) {

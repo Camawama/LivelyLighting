@@ -161,6 +161,7 @@ This structure allows for easy management of custom light sources without clutte
 *   **`light_source_colors`** (Boolean): Clients are told what each of the mod's light blocks stands for (the holder and the slot its light comes from, a lamp, a burning ship), so Colorful Lighting gives the light its source's colour wherever it is: a fast holder's trail, a light fading out after it was put away, lamps merged into one light, the dim edge of a lamp's light on a ship. Needs the mod on the client too (it then answers Colorful Lighting's block light colour API); clients without it keep Colorful Lighting's own guess. `-Dlivelylighting.noLightSourceColors=true` on a client ignores what it is told, for an A/B. Default: `true`.
 *   **`gameplay_light`** (Boolean): Dynamic light counts as the world's own light on the server: mob spawning, snow and ice melting, crops and anything else that asks how bright a place is see the carried, worn and burning lights and other mods' lights, as they saw the light blocks. Each light counts with its source's level, losing a level per block. Idle in `server_blocks` mode. Default: `true`.
 *   **`gameplay_light_occlusion`** (Boolean): With `gameplay_light`: that light stops at walls and goes round corners as a placed lamp's does (a level a block, more through leaves and water, none through an opaque block), and a spot light counts inside its cone only, dimming along its beam, where a straight line from it is clear. A ship's blocks stop nothing. Off: a straight count through everything, every light a point light, as 0.6.0. Default: `true`.
+*   **`gameplay_light_max_sources`** (Integer): With `gameplay_light`: at most this many lights are counted per world. The players' own lights always count; the others (burning and glowing entities, dropped items, item frames, other mods' lights) fill what is left, the nearest to a player first, and the rest give the world no light until they are among the nearest. `0` = no cap. Default: `256`.
 *   **`curios_lighting`** (Boolean): With Curios installed, an item with a light level worn in a curio slot (a torch or lantern on a belt) lights its wearer like one in the off hand; the light takes the colour Colorful Lighting gives that item. Lively Lighting also puts the torches and lanterns in Curios' `belt` tag, so a pack with a belt slot (Spyglass Improvements adds one) can hang them there. Default: `true`.
 
 ### Experimental Settings
@@ -228,3 +229,6 @@ Each file in this directory defines a single entity type's dynamic lighting prop
 *   `/ll add <entity> <level>`: Forces an entity to emit light.
 *   `/ll remove <entity>`: Removes forced light from an entity.
 *   `/ll config <option> <value>`: Modifies main config options in-game.
+
+`/ll toggle` for yourself and `/ll sound` are everyone's. The others ask for operator level 2, or the permission
+`livelylighting.command.livelylighting` from a permissions mod (LuckPerms, through Camafy's `Permissions`, 0.1.89).

@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.9.1 — Unreleased
+
+### Changed
+
+- **The staff commands take a permission** (2026-11-11). `/ll reload`, `purge`, `toggle <entity>`, `add`, `remove` and
+  `config` (and the same under `/livelylighting`) ask for operator level 2 as before, or the permission
+  `livelylighting.command.livelylighting` from a permissions mod on the server (LuckPerms, through Camafy's
+  `Permissions`). `/ll toggle` for yourself and `/ll sound` stay everyone's. Nothing changes on a server that sets
+  nothing up. Needs Camafy 0.1.89.
+
+### Fixed
+
+- **Many lights in one place no longer slow every light check of the world** (`gameplay_light`). The server kept every
+  light near a player in one list without an end, and each question about how bright a place is (mob spawning, snow
+  and ice, crops, other mods) went through all of it: a room of thousands of light-giving item frames made every such
+  check in that world thousands of steps long, wherever it was asked. A world now counts at most
+  `gameplay_light_max_sources` lights (256; 0 for no cap): the players' own always, then the nearest to a player
+  first, and lights merged from them on top. And a question goes to the lights that can reach its chunk section
+  alone (a point light as far as its level, a spot light inside its cone; nine lights or more, fewer are asked one by
+  one as before), so a place nowhere near a light is answered at once. Past the cap the farthest lights from the
+  players give the world no light until they are among the nearest again.
+
 ## 0.9.0 — Unreleased
 
 ### Added

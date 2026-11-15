@@ -159,6 +159,10 @@ public class LivelyConfig {
     // That light stops at walls and goes round corners as a placed lamp's does, and another mod's spot light counts
     // inside its cone only (0.6.4). Off: a straight count through everything, every light a point light, as 0.6.0.
     public boolean gameplay_light_occlusion = true;
+    // With gameplay_light: at most this many lights are counted per world, the players' own always and then the
+    // nearest to a player first (0.9.1). The list had no end, and every question about a place's light went through
+    // all of it: a room of thousands of light-giving item frames slowed every light check of its world. 0 = no cap.
+    public int gameplay_light_max_sources = 256;
 
     public Experimental experimental = new Experimental();
     // The client module (0.5.0): how a client that draws its own light draws it. Read by the client only.

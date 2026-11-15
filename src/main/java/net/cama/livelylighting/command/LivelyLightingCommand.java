@@ -8,7 +8,9 @@ import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.cama.livelylighting.dynamiclighting.engine.LightManager;
 import net.cama.livelylighting.LivelyConfig;
+import net.cama.livelylighting.LivelyLighting;
 import net.cama.livelylighting.data.LivelyLightingData;
+import net.camacraft.camafy.permission.Permissions;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.EntityArgument;
@@ -18,8 +20,16 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 
 import java.lang.reflect.Field;
+import java.util.function.Predicate;
 
 public class LivelyLightingCommand {
+    /**
+     * The staff subcommands (reload, purge, toggle for another entity, add, remove, config): operator level 2, or the
+     * permission {@code livelylighting.command.livelylighting} from the server's permissions mod (Camafy's
+     * {@code Permissions}). {@code toggle} for oneself and {@code sound} are everyone's.
+     */
+    private static final Predicate<CommandSourceStack> STAFF = Permissions.require(LivelyLighting.MODID, "command.livelylighting", 2);
+
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         LiteralArgumentBuilder<CommandSourceStack> command = Commands.literal("livelylighting");
         registerSubCommands(command);
@@ -33,17 +43,17 @@ public class LivelyLightingCommand {
     private static void registerSubCommands(LiteralArgumentBuilder<CommandSourceStack> builder) {
         builder
             .then(Commands.literal("reload")
-                .requires(source -> source.hasPermission(2))
+                .requires(STAFF)
                 .executes(LivelyLightingCommand::reloadConfig))
             .then(Commands.literal("purge")
-                .requires(source -> source.hasPermission(2))
+                .requires(STAFF)
                 .executes(LivelyLightingCommand::purgeLights)
                 .then(Commands.literal("all")
                     .executes(LivelyLightingCommand::purgeEveryLightBlock)))
             .then(Commands.literal("toggle")
                 .executes(LivelyLightingCommand::toggleSelf)
                 .then(Commands.argument("target", EntityArgument.entity())
-                    .requires(source -> source.hasPermission(2))
+                    .requires(STAFF)
                     .executes(LivelyLightingCommand::toggleTarget)))
             .then(Commands.literal("sound")
                 .then(Commands.literal("on")
@@ -51,16 +61,16 @@ public class LivelyLightingCommand {
                 .then(Commands.literal("off")
                     .executes(context -> toggleSound(context, false))))
             .then(Commands.literal("add")
-                .requires(source -> source.hasPermission(2))
+                .requires(STAFF)
                 .then(Commands.argument("target", EntityArgument.entity())
                     .then(Commands.argument("level", IntegerArgumentType.integer(1, 15))
                         .executes(LivelyLightingCommand::addEntity))))
             .then(Commands.literal("remove")
-                .requires(source -> source.hasPermission(2))
+                .requires(STAFF)
                 .then(Commands.argument("target", EntityArgument.entity())
                     .executes(LivelyLightingCommand::removeEntity)))
             .then(Commands.literal("config")
-                .requires(source -> source.hasPermission(2))
+                .requires(STAFF)
                 .then(Commands.argument("option", StringArgumentType.word())
                     .then(Commands.argument("value", StringArgumentType.greedyString())
                         .executes(LivelyLightingCommand::setConfig))));
