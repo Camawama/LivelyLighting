@@ -99,6 +99,8 @@ public class LightCalculator {
         loadItemDefinitions();
         loadEntityDefinitions();
         net.cama.livelylighting.source.BlockLightDefs.reload();
+        net.cama.livelylighting.source.UvDefs.reload();
+        net.cama.livelylighting.source.PlacedLight.forget();
     }
 
     private static LightData plain(int level) {
@@ -521,16 +523,23 @@ public class LightCalculator {
         }
         if (data == null) data = fallbackItems.get(item);
         if (data == null && config.auto_detect_block_light && item instanceof BlockItem blockItem && !config.auto_detect_blacklist.contains(id)) {
-            // Auto-detect block light
+            // Auto-detect block light: what the block gives when it is set down without power (0.10.0), not its default
+            // state's light. A lamp that needs redstone is dark in the hand.
             Block block = blockItem.getBlock();
-            BlockState defaultState = block.defaultBlockState();
-            int light = defaultState.getLightEmission();
+            java.lang.ref.WeakReference<Level> seen = lastLevel;
+            Level level = seen == null ? null : seen.get();
+            int light = net.cama.livelylighting.source.PlacedLight.of(block, level);
             if (light > 0) data = plain(light);
+            // asked before any world was there: the answer may be the default state's, so it is not kept
+            if (level == null && !net.cama.livelylighting.source.PlacedLight.known(block)) return data == null ? EMPTY_LIGHT_DATA : data;
         }
         if (data == null) data = EMPTY_LIGHT_DATA;
         itemCache.put(item, data);
         return data;
     }
+
+    /** A level the holders of items were last seen in: where a block is asked what it is when set down. */
+    private static volatile java.lang.ref.WeakReference<Level> lastLevel;
 
     public static LightData getItemLightLevel(ItemStack stack, Entity entity, Level level, LivelyConfig config) {
         return gate(itemLightLevel(stack, entity, level, config));
@@ -538,6 +547,9 @@ public class LightCalculator {
 
     private static LightData itemLightLevel(ItemStack stack, Entity entity, Level level, LivelyConfig config) {
         if (stack.isEmpty()) return EMPTY_LIGHT_DATA;
+        java.lang.ref.WeakReference<Level> seen = lastLevel;
+        // any level will do for the question, so it is kept until it is gone (the client's and the server's take turns here)
+        if (level != null && (seen == null || seen.get() == null)) lastLevel = new java.lang.ref.WeakReference<>(level);
 
         Item item = stack.getItem();
         // The light block's own item is the tool for seeing and editing light blocks. A player

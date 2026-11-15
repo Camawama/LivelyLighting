@@ -129,6 +129,7 @@ The configuration is split into three parts:
 1.  **`livelylighting.json`**: The main configuration file for global settings.
 2.  **`item_definitions/`**: A directory containing individual JSON files for each custom item.
 3.  **`entity_definitions/`**: A directory containing individual JSON files for each custom entity.
+4.  **`uv_definitions/`**: What glows under ultraviolet whatever its own colours (see "UV Definitions").
 
 This structure allows for easy management of custom light sources without cluttering a single file.
 
@@ -149,7 +150,7 @@ This structure allows for easy management of custom light sources without clutte
 *   **`glowing_effect_lighting`** (Boolean): If enabled, entities with the Glowing effect emit light level 6. Default: `true`.
 *   **`enable_particles`** (Boolean): Master toggle for particle effects. Default: `true`.
 *   **`enable_sounds`** (Boolean): Master toggle for sound effects. Default: `true`.
-*   **`auto_detect_block_light`** (Boolean): If enabled, the mod automatically detects items that are blocks and emit light (e.g., modded lamps) and assigns them a dynamic light level. Default: `true`.
+*   **`auto_detect_block_light`** (Boolean): If enabled, the mod automatically detects items that are blocks and emit light (e.g., modded lamps) and assigns them a dynamic light level: the light the block gives when it is placed without power, so a lamp that needs redstone is dark in the hand. Default: `true`.
 *   **`auto_detect_blacklist`** (List<String>): A list of item IDs to exclude from auto-detection (e.g., `minecraft:light`).
 *   **`vs_support`** (Boolean): Experimental Valkyrien Skies support. Default: `false`.
 *   **`lamps_scale_with_ships`** (Boolean): With `vs_support`: a ship's lamps reach as far as the ship's Valkyrien Skies scale says (see "Moving structures"). Read by the server for its light blocks and by each client for the light it draws. Default: `true`.
@@ -217,6 +218,35 @@ Each file in this directory defines a single entity type's dynamic lighting prop
 
 *   **`entity_id`**: The registry name of the entity. Supports regex. **Note:** While powerful, complex regex patterns can impact performance. Prefer simple patterns or exact IDs when possible.
 *   **`light_level`**: The light level (0-15).
+
+---
+
+## UV Definitions (`uv_definitions/*.json`)
+
+A blacklight (a light whose colour is `uv`) makes saturated colours glow. Some things glow under ultraviolet whatever
+their colours: a scorpion is brown and glows blue-green. Each file here names entity types and the glow they have.
+Drawn by Colorful Lighting 2.14.0 or newer, on the client, where a blacklight block or an ultraviolet dynamic light
+reaches; the list is the client's own.
+
+**Example (`arachnids.json`):**
+```json
+{
+  "entity_ids": ["regex:.*:(.*_)?scorpion(_.*)?", "regex:.*:(.*_)?spider", "alexsmobs:centipede_head"],
+  "glow_color": "#3DFFD2",
+  "strength": 0.9
+}
+```
+
+*   **`entity_ids`** (or one **`entity_id`**): registry names, `regex:` patterns over registry names, or `#` entity type tags (`"#mypack:fluorescent"`).
+*   **`glow_color`**: The colour of the glow: `#RRGGBB` or a dye's name.
+*   **`strength`**: How strong, 0 to 4 (default 1).
+*   **`min_brightness`**, **`max_brightness`** (optional, 0 to 1): only the part of the texture that bright glows. `"min_brightness": 0.4` leaves shadows and dark clothes dark.
+*   **`hue`**, **`hue_range`** (optional): only the part of the texture near a hue glows. `hue` is a colour (`"#FFD000"`) or degrees round the colour wheel; `hue_range` is degrees either side (default 30). With these the markings of a body can glow and the rest stay dark.
+*   **`textures`** (optional): textures that glow whoever draws them (`"mymod:textures/entity/layer.png"`: a layer of a mob, a block entity's texture). A listed entity's own body texture needs no naming; what it wears or holds does not glow.
+
+The files written when the folder is missing or empty: arachnids, jellyfish, crustaceans, fungi, bones, frogs and the
+mammals found to glow under ultraviolet. A file can be deleted or edited; the defaults come back only into an empty folder.
+`/ll reload` and a resource reload (F3 + T) read the folder again; `client.uv_reactive_entities` switches the glow off.
 
 ---
 

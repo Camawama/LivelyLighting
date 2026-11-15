@@ -43,6 +43,9 @@ public final class ClientLights {
             announced = false;
         });
         if (ModList.get().isLoaded("colorful_lighting")) {
+            // what is on the uv_definitions glows under ultraviolet (0.10.0, Colorful Lighting 2.14.0), in every lighting mode
+            Fluorescence.init();
+            MinecraftForge.EVENT_BUS.addListener((net.minecraftforge.event.TagsUpdatedEvent e) -> net.cama.livelylighting.source.UvDefs.tagsChanged());
             colorful = ColorfulBridge.register(ENGINE);
             if (colorful) {
                 ColorfulBridge.registerShipBlocks();
@@ -97,6 +100,7 @@ public final class ClientLights {
         Minecraft mc = Minecraft.getInstance();
         ClientLevel level = mc.level;
         if (level == null) return;
+        Fluorescence.tick();
         boolean draw = ClientLightMode.drawsOwnLight();
         if (!draw) {
             MapRefresh.tick(level, java.util.Collections.emptyList(), false);

@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.10.0 — Unreleased
+
+### Added
+
+- **What glows under ultraviolet whatever its colours** (2026-11-14, `config/livelylighting/uv_definitions/`). A
+  blacklight makes saturated colours glow; a scorpion is brown and glows blue-green all the same. A file in the new
+  folder names entity types (`entity_ids`: ids, `regex:` patterns over ids, `#` entity type tags) and the glow they
+  have under ultraviolet: `glow_color` (a hex colour or a dye's name) and `strength` (0 to 4, 1 by default). A part of
+  the texture can be picked so the markings glow and the rest stays dark: `min_brightness` and `max_brightness` (0 to
+  1), and `hue` (a colour, or degrees) with `hue_range` (degrees either side, 30 by default). `textures` lists textures
+  that glow whoever draws them (a layer of a mob, a block entity's texture); a body's own texture needs no naming.
+  Written when the folder is missing or empty: arachnids (every `*_scorpion` and `*spider`, Alex's Mobs' centipede)
+  blue-green; jellyfish (Aquaculture's, Alex's Mobs' comb jelly) green; crustaceans (mantis shrimp, lobster, Quark's
+  crab); fungi (bunfungus, Aquaculture's shroomas, Enderman Overhaul's mushroom fields enderman); bone (skeleton,
+  stray, skeleton horse, bone serpent, Twilight Forest's skeleton druid, Iron's summoned skeleton: a pale blue-white on
+  the bright part of the texture only); frogs and the mammals found to glow (frog, rain frog, platypus, sugar glider,
+  Tasmanian devil). Read at startup, by `/ll reload` and at every resource reload (F3 + T: the list is the client's
+  own, nothing of it goes over the network). `client.uv_reactive_entities` (on) switches it off.
+  - Drawn by Colorful Lighting 2.14.0 or newer (`client.dynamic.Fluorescence` hands it the list by reflection; an older
+    one draws no such glow, logged once), in every lighting mode, where ultraviolet reaches: a blacklight block or an
+    ultraviolet dynamic light (a flashlight with `color: "uv"`). An entity that is not on the list costs one lookup by
+    its type while ultraviolet is about, and nothing without.
+  - Harness `ll_uv_entities` (the main pack): a spider, a husk and a skeleton under two blacklights, with the list and
+    without.
+
+### Fixed
+
+- **A lamp that needs redstone no longer shines in the hand** (2026-11-14, `source.PlacedLight`). An item without a
+  definition takes its block's light (`auto_detect_block_light`), and the block's default state was asked. A block
+  that names no default state gets the game's first state, and the first value of a true-or-false property is true:
+  Quark's crystal lamps were "lit" by default and gave a light of 15 in the hand, though they are dark when placed
+  without power. The block is now asked what it is when it is set down with nothing round it (its own placement rule,
+  far below the world: no chunk is touched, nothing powers it, no water is there, no player), once per block and only
+  for blocks whose states differ in light; a block whose rule needs more than that keeps its default state's light.
+  A sea pickle, whose default state is in water, is dark in the hand too. An item definition still gives any item a
+  light on purpose. Harness `ll_held_lamps` (the main pack).
+
 ## 0.9.1 — Unreleased
 
 ### Changed

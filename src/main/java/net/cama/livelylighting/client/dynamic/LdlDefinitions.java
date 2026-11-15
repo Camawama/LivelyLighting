@@ -37,6 +37,8 @@ public final class LdlDefinitions implements ResourceManagerReloadListener {
 
     @Override
     public void onResourceManagerReload(ResourceManager manager) {
+        // the list of what glows under ultraviolet is this client's own: F3 + T reads it again (0.10.0)
+        net.cama.livelylighting.source.UvDefs.reload();
         Map<Item, LightData> found = new HashMap<>();
         Map<ResourceLocation, Resource> files = manager.listResources("dynamiclights/item", id -> id.getPath().endsWith(".json"));
         for (Map.Entry<ResourceLocation, Resource> e : files.entrySet()) {

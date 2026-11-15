@@ -29,6 +29,8 @@ public class LivelyConfig {
     public static final Path ENTITY_DEFINITIONS_DIR = CONFIG_DIR.resolve("entity_definitions");
     /** Block definitions (0.5.0): what a luminous block on a ship or contraption is as a dynamic light (a headlight). */
     public static final Path BLOCK_DEFINITIONS_DIR = CONFIG_DIR.resolve("block_definitions");
+    /** What glows under ultraviolet whatever its own colours (0.10.0). */
+    public static final Path UV_DEFINITIONS_DIR = CONFIG_DIR.resolve("uv_definitions");
 
     private static LivelyConfig instance;
 
@@ -271,6 +273,9 @@ public class LivelyConfig {
         // their light stops at walls as a block's does and shader packs read it as block light. Off: a straight-line light
         // through walls, cheaper when many lights move.
         public boolean lightmap_propagate = true;
+        // What is listed in config/livelylighting/uv_definitions glows under ultraviolet whatever its own colours (a
+        // scorpion, a jellyfish, bone). Drawn by Colorful Lighting 2.14.0 and newer; off: only saturated colours glow.
+        public boolean uv_reactive_entities = true;
     }
 
     public static class Experimental {
@@ -360,6 +365,7 @@ public class LivelyConfig {
                 generateDefaultEntities();
             }
             net.cama.livelylighting.source.BlockLightDefs.generateDefaults();
+            net.cama.livelylighting.source.UvDefs.generateDefaults();
         } catch (IOException e) {
             e.printStackTrace();
         }
