@@ -143,6 +143,8 @@ public class LivelyLightingCommand {
                     context.getSource().sendSuccess(() -> Component.literal("Dynamic lighting sounds are already disabled."), false);
                 }
             }
+            // the clients that play the effects of the lights they draw learn it too (0.10.1)
+            net.cama.livelylighting.source.LightModes.broadcastMode(context.getSource().getServer());
         }
         return 1;
     }

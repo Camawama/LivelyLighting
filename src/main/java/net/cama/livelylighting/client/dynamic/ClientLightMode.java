@@ -90,6 +90,14 @@ public final class ClientLightMode {
         return forced == null ? null : forced.get(uuid);
     }
 
+    /** Whether the sounds of an entity's light are switched off ({@code /ll sound off}, the server's list). */
+    public static boolean soundsOff(UUID uuid) {
+        LightSourceNet.ModeInfo i = info;
+        if (i == null) return false;
+        Set<UUID> s = i.soundsOff();
+        return s != null && s.contains(uuid);
+    }
+
     /** Whether an entity's light is switched off (/ll toggle). */
     public static boolean disabled(UUID uuid) {
         LightSourceNet.ModeInfo i = info;

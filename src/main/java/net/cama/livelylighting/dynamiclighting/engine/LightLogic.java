@@ -920,6 +920,35 @@ public class LightLogic {
                 .add(view.cross(new Vec3(0, 1, 0)).scale(0.3));
     }
 
+    /**
+     * A light's sound, to the players the block engine lights for (0.10.1): in {@code hybrid} a client that draws its own light
+     * plays the effects of the lights it draws ({@code HeldLightEffects}), and heard both. Everyone in {@code server_blocks}.
+     */
+    private static void effectSound(ServerLevel level, Vec3 at, net.minecraft.sounds.SoundEvent sound, float volume, float pitch) {
+        if (net.cama.livelylighting.source.LightModes.current() == net.cama.livelylighting.source.LightMode.SERVER_BLOCKS) {
+            level.playSound(null, at.x, at.y, at.z, sound, SoundSource.NEUTRAL, volume, pitch);
+            return;
+        }
+        double range = sound.getRange(volume);
+        net.minecraft.core.Holder<net.minecraft.sounds.SoundEvent> holder = net.minecraft.core.registries.BuiltInRegistries.SOUND_EVENT.wrapAsHolder(sound);
+        long seed = level.getRandom().nextLong();
+        for (net.minecraft.server.level.ServerPlayer p : level.players()) {
+            if (!net.cama.livelylighting.source.LightModes.lightsFor(p) || p.distanceToSqr(at) > range * range) continue;
+            p.connection.send(new net.minecraft.network.protocol.game.ClientboundSoundPacket(holder, SoundSource.NEUTRAL, at.x, at.y, at.z, volume, pitch, seed));
+        }
+    }
+
+    /** A light's particles, to the players the block engine lights for (see {@link #effectSound}). */
+    private static void effectParticles(ServerLevel level, ParticleOptions particle, Vec3 at, int count, double spread, double speed) {
+        if (net.cama.livelylighting.source.LightModes.current() == net.cama.livelylighting.source.LightMode.SERVER_BLOCKS) {
+            level.sendParticles(particle, at.x, at.y, at.z, count, spread, spread, spread, speed);
+            return;
+        }
+        for (net.minecraft.server.level.ServerPlayer p : level.players()) {
+            if (net.cama.livelylighting.source.LightModes.lightsFor(p)) level.sendParticles(p, particle, false, at.x, at.y, at.z, count, spread, spread, spread, speed);
+        }
+    }
+
     private static void processLightData(Entity entity, ServerLevel level, Map<BlockPos, LightCluster> worldClusters, Map<BlockPos, LightCluster> worldUltraClusters, LivelyConfig config, boolean useVs, LightData lightData, String sourceId, LightGameState gameState, Vec3 velocity) {
         LivelyLightingData worldData = LivelyLightingData.get(level);
         int lightLevel = lightData.level;
@@ -956,15 +985,15 @@ public class LightLogic {
                     Vec3 handPos = handPos(entity);
                     if (lastData != null && lastData.extinguishSounds != null && !lastData.extinguishSounds.isEmpty()) {
                         for (SoundData sd : lastData.extinguishSounds) {
-                            level.playSound(null, handPos.x, handPos.y, handPos.z, sd.sound, SoundSource.NEUTRAL, sd.volume, sd.pitch);
+                            effectSound(level, handPos, sd.sound, sd.volume, sd.pitch);
                         }
                     } else {
                         // Fallback default
-                        level.playSound(null, handPos.x, handPos.y, handPos.z, SoundEvents.GENERIC_EXTINGUISH_FIRE, SoundSource.NEUTRAL, 0.5f, 1.0f);
+                        effectSound(level, handPos, SoundEvents.GENERIC_EXTINGUISH_FIRE, 0.5f, 1.0f);
                     }
                     
                     if (config.enable_particles) {
-                        level.sendParticles(ParticleTypes.SMOKE, handPos.x, handPos.y, handPos.z, 5, 0.1, 0.1, 0.1, 0.0);
+                        effectParticles(level, ParticleTypes.SMOKE, handPos, 5, 0.1, 0.0);
                     }
                 }
             }
@@ -982,7 +1011,7 @@ public class LightLogic {
                          if (config.enable_sounds && !worldData.arePlayerSoundsDisabled(entity.getUUID())) {
                              if (sounds != null) {
                                  for (SoundData sd : sounds) {
-                                     level.playSound(null, handPos.x, handPos.y, handPos.z, sd.sound, SoundSource.NEUTRAL, sd.volume, sd.pitch);
+                                     effectSound(level, handPos, sd.sound, sd.volume, sd.pitch);
                                  }
                              }
                          }
@@ -990,7 +1019,7 @@ public class LightLogic {
                              if (particles != null) {
                                  for (ParticleType<?> particle : particles) {
                                      if (particle instanceof ParticleOptions) {
-                                         level.sendParticles((ParticleOptions) particle, handPos.x, handPos.y, handPos.z, 3, 0.05, 0.05, 0.05, 0.02);
+                                         effectParticles(level, (ParticleOptions) particle, handPos, 3, 0.05, 0.02);
                                      }
                                  }
                              }

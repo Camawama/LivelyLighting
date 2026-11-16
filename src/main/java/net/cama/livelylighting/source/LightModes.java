@@ -68,7 +68,7 @@ public final class LightModes {
     /** The mode message for one player. */
     public static LightSourceNet.ModeInfo infoFor(ServerPlayer player) {
         LivelyLightingData data = LivelyLightingData.get(player.serverLevel());
-        return new LightSourceNet.ModeInfo(current(), lightsFor(player), data.forcedEntities(), data.disabledEntities());
+        return new LightSourceNet.ModeInfo(current(), lightsFor(player), data.forcedEntities(), data.disabledEntities(), data.soundsDisabledPlayers());
     }
 
     public static void sendModeTo(ServerPlayer player) {

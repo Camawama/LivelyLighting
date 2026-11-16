@@ -24,11 +24,18 @@ import java.util.List;
 public final class ClientLights {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final ClientLightEngine ENGINE = new ClientLightEngine();
+    /** The particles and sounds of the lights this client draws being taken out or going out (0.10.1). */
+    private static final HeldLightEffects EFFECTS = new HeldLightEffects();
     private static boolean colorful;
     private static boolean announced;
     /** For tests: lights published this tick. */
     public static List<DynamicLight> lights() {
         return ENGINE.lights();
+    }
+
+    /** For tests: the ignitions and the put-outs this client has played (particles and sounds of its own lights). */
+    public static int[] effectsPlayed() {
+        return new int[]{EFFECTS.ignitions(), EFFECTS.putOuts()};
     }
 
     private ClientLights() {}
@@ -39,6 +46,7 @@ public final class ClientLights {
         MinecraftForge.EVENT_BUS.addListener((ClientPlayerNetworkEvent.LoggingOut e) -> {
             ClientLightMode.reset();
             ENGINE.forget();
+            EFFECTS.forget();
             StandaloneLights.setActive(false);
             announced = false;
         });
@@ -100,11 +108,14 @@ public final class ClientLights {
         Minecraft mc = Minecraft.getInstance();
         ClientLevel level = mc.level;
         if (level == null) return;
+        // a paused singleplayer game still runs client ticks: the world stands still, and so do its lights and their fades (0.10.1)
+        if (mc.isPaused()) return;
         Fluorescence.tick();
         boolean draw = ClientLightMode.drawsOwnLight();
         if (!draw) {
             MapRefresh.tick(level, java.util.Collections.emptyList(), false);
             if (!ENGINE.lights().isEmpty()) ENGINE.forget();
+            EFFECTS.forget();
             if (StandaloneLights.active()) StandaloneLights.setActive(false);
             if (colorful) ColorfulBridge.setMeshLighting(true);
             return;
@@ -115,6 +126,8 @@ public final class ClientLights {
         }
         ENGINE.tick(level);
         LivelyConfig config = LivelyConfig.get();
+        // the server's block engine plays these for the players it lights; this client is lit by none and plays its own (0.10.1)
+        EFFECTS.tick(level, config);
         // Xaero's maps redraw the chunks a light left (0.6.5)
         MapRefresh.tick(level, ENGINE.lights(), config.client.map_refresh && config.client.world_light);
         if (colorful) {

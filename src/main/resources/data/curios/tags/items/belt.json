@@ -1,9 +1,6 @@
 {
   "replace": false,
   "values": [
-    "minecraft:torch",
-    "minecraft:soul_torch",
-    "minecraft:lantern",
-    "minecraft:soul_lantern"
+    "#livelylighting:belt_lanterns"
   ]
 }

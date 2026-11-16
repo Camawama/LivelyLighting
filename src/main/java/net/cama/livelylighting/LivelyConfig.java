@@ -299,8 +299,36 @@ public class LivelyConfig {
         public Integer fade_in_rate;
     }
 
-    // Default lists used for generation
+    // Default lists used for generation. A held light's effects (0.10.1): a torch whooshes softly as it is taken out and
+    // hisses when water or rain puts it out (it played the fire's crackle loop at full volume); a lantern clinks on its chain,
+    // with no flame puffing out of the glass; glowing things sparkle; a beacon chimes once; the beacon's and the conduit's
+    // ambient loops and the ender chest's opening sound, which played on every pick-up, are gone. Sounds are "id:volume:pitch".
     private static final List<String> DEFAULT_ITEMS = Arrays.asList(
+            "minecraft:torch|14|true|minecraft:flame,minecraft:smoke|minecraft:item.firecharge.use:0.15:1.7|minecraft:block.fire.extinguish:0.35:1.8",
+            "minecraft:soul_torch|10|true|minecraft:soul_fire_flame,minecraft:smoke|minecraft:item.firecharge.use:0.15:1.3|minecraft:block.fire.extinguish:0.35:1.6",
+            "minecraft:lantern|15|false|null|minecraft:block.chain.step:0.5:1.3|null",
+            "minecraft:soul_lantern|10|false|null|minecraft:block.chain.step:0.5:1.1|null",
+            "minecraft:campfire|15|true|minecraft:flame,minecraft:smoke|minecraft:block.campfire.crackle:0.5:1.0|minecraft:block.fire.extinguish:0.4:1.4",
+            "minecraft:soul_campfire|10|true|minecraft:soul_fire_flame,minecraft:smoke|minecraft:block.campfire.crackle:0.5:0.9|minecraft:block.fire.extinguish:0.4:1.3",
+            "minecraft:lava_bucket|15|false|minecraft:lava|minecraft:block.lava.pop:0.4:1.0|null",
+            "minecraft:blaze_rod|10|false|minecraft:small_flame|null|null",
+            "minecraft:magma_cream|8|false|minecraft:small_flame|null|null",
+            "minecraft:glowstone|15|false|minecraft:glow|null|null",
+            "minecraft:glowstone_dust|8|false|minecraft:glow|null|null",
+            "minecraft:sea_lantern|15|false|minecraft:glow|null|null",
+            "minecraft:jack_o_lantern|15|false|minecraft:small_flame|null|null",
+            "minecraft:shroomlight|15|false|minecraft:glow|null|null",
+            "minecraft:end_rod|14|false|minecraft:end_rod|null|null",
+            "minecraft:beacon|15|false|minecraft:end_rod|minecraft:block.beacon.power_select:0.2:1.8|null",
+            "minecraft:conduit|15|false|minecraft:nautilus|null|null",
+            "minecraft:nether_star|10|false|minecraft:end_rod|null|null",
+            "minecraft:ender_chest|7|false|minecraft:portal|null|null",
+            "minecraft:enchanting_table|10|false|minecraft:enchant|null|null",
+            "minecraft:end_crystal|15|false|minecraft:end_rod|null|null"
+    );
+
+    /** The defaults before 0.10.1: a definition file still exactly one of these is rewritten to its new default on load. */
+    private static final List<String> OLD_DEFAULT_ITEMS = Arrays.asList(
             "minecraft:torch|14|true|minecraft:flame|minecraft:block.fire.ambient|minecraft:block.fire.extinguish",
             "minecraft:soul_torch|10|true|minecraft:soul_fire_flame|minecraft:block.soul_fire.ambient|minecraft:block.fire.extinguish",
             "minecraft:lantern|15|false|minecraft:flame|null|null",
@@ -356,6 +384,8 @@ public class LivelyConfig {
                 generateDefaultItems();
             } else if (isEmpty(ITEM_DEFINITIONS_DIR)) {
                 generateDefaultItems();
+            } else {
+                upgradeDefaultItems();
             }
             
             if (!Files.exists(ENTITY_DEFINITIONS_DIR)) {
@@ -495,34 +525,70 @@ public class LivelyConfig {
     private static void generateDefaultItems() {
         for (String entry : DEFAULT_ITEMS) {
             try {
-                String[] parts = entry.split("\\|");
-                if (parts.length >= 3) {
-                    JsonObject json = new JsonObject();
-                    String id = parts[0];
-                    json.addProperty("item_id", id);
-                    json.addProperty("light_level", Integer.parseInt(parts[1]));
-                    json.addProperty("water_sensitive", Boolean.parseBoolean(parts[2]));
-                    
-                    if (parts.length >= 4 && !parts[3].equals("null")) {
-                        json.addProperty("particles", parts[3]);
-                    }
-                    if (parts.length >= 5 && !parts[4].equals("null")) {
-                        json.addProperty("activate_sounds", parts[4]);
-                    }
-                    if (parts.length >= 6 && !parts[5].equals("null")) {
-                        json.addProperty("deactivate_sounds", parts[5]);
-                    }
-                    
-                    String filename = id.replace(":", "_") + ".json";
-                    File file = ITEM_DEFINITIONS_DIR.resolve(filename).toFile();
-                    try (FileWriter writer = new FileWriter(file)) {
-                        GSON.toJson(json, writer);
-                    }
-                }
+                JsonObject json = defaultItemJson(entry);
+                if (json != null) writeItemDefinition(json);
             } catch (Exception e) {
                 e.printStackTrace();
             }
         }
+    }
+
+    /** One default entry ({@code id|level|water_sensitive|particles|activate_sounds|deactivate_sounds}) as its file's JSON. */
+    @org.jetbrains.annotations.Nullable
+    private static JsonObject defaultItemJson(String entry) {
+        String[] parts = entry.split("\\|");
+        if (parts.length < 3) return null;
+        JsonObject json = new JsonObject();
+        json.addProperty("item_id", parts[0]);
+        json.addProperty("light_level", Integer.parseInt(parts[1]));
+        json.addProperty("water_sensitive", Boolean.parseBoolean(parts[2]));
+        if (parts.length >= 4 && !parts[3].equals("null")) json.addProperty("particles", parts[3]);
+        if (parts.length >= 5 && !parts[4].equals("null")) json.addProperty("activate_sounds", parts[4]);
+        if (parts.length >= 6 && !parts[5].equals("null")) json.addProperty("deactivate_sounds", parts[5]);
+        return json;
+    }
+
+    private static File itemDefinitionFile(String id) {
+        return ITEM_DEFINITIONS_DIR.resolve(id.replace(":", "_") + ".json").toFile();
+    }
+
+    private static void writeItemDefinition(JsonObject json) throws IOException {
+        try (FileWriter writer = new FileWriter(itemDefinitionFile(json.get("item_id").getAsString()))) {
+            GSON.toJson(json, writer);
+        }
+    }
+
+    /**
+     * The new effects for definitions nobody changed (0.10.1): a file that is still exactly the old default is rewritten as the
+     * new one; an edited file, or one the user added, is left as it is.
+     */
+    private static void upgradeDefaultItems() {
+        int upgraded = 0;
+        for (String oldEntry : OLD_DEFAULT_ITEMS) {
+            try {
+                JsonObject old = defaultItemJson(oldEntry);
+                if (old == null) continue;
+                String id = old.get("item_id").getAsString();
+                File file = itemDefinitionFile(id);
+                if (!file.isFile()) continue;
+                JsonElement onDisk;
+                try (FileReader reader = new FileReader(file)) {
+                    onDisk = JsonParser.parseReader(reader);
+                }
+                if (!old.equals(onDisk)) continue;
+                for (String entry : DEFAULT_ITEMS) {
+                    if (!entry.startsWith(id + "|")) continue;
+                    JsonObject now = defaultItemJson(entry);
+                    if (now != null && !now.equals(old)) {
+                        writeItemDefinition(now);
+                        upgraded++;
+                    }
+                }
+            } catch (Exception e) {
+                LOGGER.warn("Could not check the default item definition {}: {}", oldEntry, e.toString());
+            }
+        }
+        if (upgraded > 0) LOGGER.info("Gave {} unchanged default item definitions their new particles and sounds", upgraded);
     }
     
     private static void generateDefaultEntities() {

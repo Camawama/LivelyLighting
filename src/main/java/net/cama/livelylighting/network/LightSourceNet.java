@@ -44,8 +44,16 @@ public final class LightSourceNet {
     /** One light: its block position and its sources (LightSources pairs). */
     public record Entry(long pos, long[] sources) {}
 
-    /** The server's mode as told to a client: the mode, whether the server lights for this client, forced levels, disabled entities. */
-    public record ModeInfo(LightMode mode, boolean serverLightsForYou, Map<UUID, Integer> forced, Set<UUID> disabled) {}
+    /**
+     * The server's mode as told to a client: the mode, whether the server lights for this client, forced levels, disabled
+     * entities, and (0.10.1) the players whose lights make no sound ({@code /ll sound off}), for a client that plays the
+     * effects of the lights it draws.
+     */
+    public record ModeInfo(LightMode mode, boolean serverLightsForYou, Map<UUID, Integer> forced, Set<UUID> disabled, Set<UUID> soundsOff) {
+        public ModeInfo(LightMode mode, boolean serverLightsForYou, Map<UUID, Integer> forced, Set<UUID> disabled) {
+            this(mode, serverLightsForYou, forced, disabled, Set.of());
+        }
+    }
 
     /** Called once from the mod's constructor, on both sides. */
     public static void register() {
@@ -136,6 +144,9 @@ public final class LightSourceNet {
             }
             buf.writeVarInt(msg.info.disabled.size());
             for (UUID id : msg.info.disabled) buf.writeUUID(id);
+            // at the end (0.10.1), read only when there: the channel's version stays, and either side may be the older one
+            buf.writeVarInt(msg.info.soundsOff.size());
+            for (UUID id : msg.info.soundsOff) buf.writeUUID(id);
         }
 
         static Mode decode(FriendlyByteBuf buf) {
@@ -148,7 +159,12 @@ public final class LightSourceNet {
             int m = Math.min(buf.readVarInt(), 65536);
             Set<UUID> disabled = new HashSet<>();
             for (int i = 0; i < m; i++) disabled.add(buf.readUUID());
-            return new Mode(new ModeInfo(mode, forYou, forced, disabled));
+            Set<UUID> soundsOff = new HashSet<>();
+            if (buf.isReadable()) {
+                int k = Math.min(buf.readVarInt(), 65536);
+                for (int i = 0; i < k; i++) soundsOff.add(buf.readUUID());
+            }
+            return new Mode(new ModeInfo(mode, forYou, forced, disabled, soundsOff));
         }
 
         static void handle(Mode msg, Supplier<NetworkEvent.Context> ctx) {

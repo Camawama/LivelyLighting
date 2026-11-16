@@ -1,6 +1,7 @@
 package net.cama.livelylighting.client.dynamic;
 
 import com.mojang.logging.LogUtils;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.world.phys.Vec3;
 import org.slf4j.Logger;
@@ -354,7 +355,19 @@ final class ColorfulBridge {
         }
     }
 
+    /**
+     * The moment of the frame the world is drawn at (0.10.1). Colorful Lighting asks with the game timer's partial tick, which
+     * runs on while a singleplayer game is paused, but the world is drawn at the moment it paused: a held light slid between
+     * its last two ticks' places twenty times a second and flickered behind the pause menu. While paused, the paused moment.
+     */
+    static float framePartialTick(float given) {
+        if (given >= 1.0f) return given;
+        Minecraft mc = Minecraft.getInstance();
+        return mc.isPaused() ? mc.getPartialTick() : given;
+    }
+
     private static void collect(ClientLightEngine engine, ClientLevel level, float partialTick, Object sink) throws Throwable {
+        partialTick = framePartialTick(partialTick);
         List<DynamicLight> lights = engine.lights();
         for (DynamicLight light : lights) {
             boolean absorbs = net.cama.livelylighting.dynamiclighting.engine.LightData.isAbsorber(light.rgb);

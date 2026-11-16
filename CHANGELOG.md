@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.10.1 — Unreleased
+
+### Added
+
+- **Held lights play their particles and sounds with the client renderer** (2026-11-16, `client.dynamic.HeldLightEffects`).
+  The effects of a light being taken out (a definition's `particles` and `activate_sounds`) and of one put out by water
+  or rain (`deactivate_sounds`, a little smoke) were played by the server's block engine only, so a client drawing its own
+  light (`client` and `hybrid` modes) got none. Each client with Lively Lighting now plays them for the hands and belts it
+  sees within 32 blocks, at the hand (the belt: the hip), with no packets; the server plays them only for the players it
+  lights, so nobody hears them twice. A light first seen already shining plays nothing, nor does one lit again within a
+  second of going out (switching slots back and forth); one ignition per holder every half second at most; the put-out
+  plays only while the same light is still held. `/ll sound off` now reaches these clients too (the mode message carries
+  the players whose lights are silent, appended at its end so older versions on either side still read it).
+- **Lanterns on the Curios belt, drawn at the hip** (2026-11-16, `client.BeltLanterns`, `#livelylighting:belt_lanterns`).
+  Torches are out of the belt tag; lanterns are in: vanilla's two and the pack mods' hanging lanterns (SecurityCraft,
+  Biomancy, Caverns & Chasms, Deep Aether, The Endergetic Expansion, Metal Works, The Undergarden, Spelunkery's salt lamp), each optional, through
+  the new tag a pack can add to. Players get a `belt` slot from Lively Lighting itself (`data/livelylighting/curios/entities`).
+  A lantern on the belt is drawn hanging at the hip away from the main hand, chain up, half size and as bright as its own
+  light, following the body's turn and crouch; a lantern with a Curios renderer of its own keeps it. Taking out a lantern
+  that has no sound of its own clinks its chain.
+
+### Changed
+
+- **Gentler default effects** (`LivelyConfig.DEFAULT_ITEMS`). A torch played the fire's ambient crackle loop at full volume
+  each time it was taken out and the put-out hiss at full volume; a lantern puffed flame out of its glass; the beacon's
+  and the conduit's ambient loops and the ender chest's opening sound played on every pick-up. Now: torches a soft whoosh
+  (`item.firecharge.use` 0.15) with flame and smoke and a quiet higher hiss when put out; lanterns a chain clink and no
+  particles; campfires a quieter crackle; glowstone, sea lanterns and shroomlights the glow sparkle; blaze rods, magma
+  cream and jack o'lanterns a small flame; a beacon one short chime; the conduit, ender chest and enchanting table their
+  particles only. Light levels are unchanged. Default files nobody edited (still exactly the old default) are rewritten
+  on load; edited ones are left alone.
+
+### Fixed
+
+- **A held light no longer flickers behind the pause menu** (2026-11-16, `client.dynamic.ColorfulBridge.framePartialTick`,
+  `ClientLights`). Colorful Lighting places the lights with the game timer's partial tick, which keeps running while a
+  singleplayer game is paused, while the world is drawn at the moment it paused: the light slid between its last two
+  ticks' places twenty times a second. The lights are now placed at the paused moment while paused, and the client
+  engine stands still with the world. Harness `ll_pause`.
+
 ## 0.10.0 — Unreleased
 
 ### Added

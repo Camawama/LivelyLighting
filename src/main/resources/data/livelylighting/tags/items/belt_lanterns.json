@@ -1,0 +1,179 @@
+{
+  "replace": false,
+  "values": [
+    "minecraft:lantern",
+    "minecraft:soul_lantern",
+    {
+      "id": "securitycraft:reinforced_lantern",
+      "required": false
+    },
+    {
+      "id": "securitycraft:reinforced_soul_lantern",
+      "required": false
+    },
+    {
+      "id": "biomancy:bio_lantern_blue",
+      "required": false
+    },
+    {
+      "id": "biomancy:bio_lantern_yellow",
+      "required": false
+    },
+    {
+      "id": "biomancy:primordial_bio_lantern",
+      "required": false
+    },
+    {
+      "id": "caverns_and_chasms:copper_lantern",
+      "required": false
+    },
+    {
+      "id": "caverns_and_chasms:exposed_copper_lantern",
+      "required": false
+    },
+    {
+      "id": "caverns_and_chasms:weathered_copper_lantern",
+      "required": false
+    },
+    {
+      "id": "caverns_and_chasms:oxidized_copper_lantern",
+      "required": false
+    },
+    {
+      "id": "caverns_and_chasms:waxed_copper_lantern",
+      "required": false
+    },
+    {
+      "id": "caverns_and_chasms:waxed_exposed_copper_lantern",
+      "required": false
+    },
+    {
+      "id": "caverns_and_chasms:waxed_weathered_copper_lantern",
+      "required": false
+    },
+    {
+      "id": "caverns_and_chasms:waxed_oxidized_copper_lantern",
+      "required": false
+    },
+    {
+      "id": "caverns_and_chasms:cupric_lantern",
+      "required": false
+    },
+    {
+      "id": "deep_aether:skyjade_lantern",
+      "required": false
+    },
+    {
+      "id": "endergetic:ender_lantern",
+      "required": false
+    },
+    {
+      "id": "metal_works:tin_lantern",
+      "required": false
+    },
+    {
+      "id": "metal_works:tin_soul_lantern",
+      "required": false
+    },
+    {
+      "id": "metal_works:tin_mage_lantern",
+      "required": false
+    },
+    {
+      "id": "metal_works:mage_lantern",
+      "required": false
+    },
+    {
+      "id": "metal_works:tarnished_tin_lantern",
+      "required": false
+    },
+    {
+      "id": "metal_works:tarnished_tin_soul_lantern",
+      "required": false
+    },
+    {
+      "id": "metal_works:tarnished_tin_mage_lantern",
+      "required": false
+    },
+    {
+      "id": "metal_works:eroded_tin_lantern",
+      "required": false
+    },
+    {
+      "id": "metal_works:eroded_tin_soul_lantern",
+      "required": false
+    },
+    {
+      "id": "metal_works:eroded_tin_mage_lantern",
+      "required": false
+    },
+    {
+      "id": "metal_works:corroded_tin_lantern",
+      "required": false
+    },
+    {
+      "id": "metal_works:corroded_tin_soul_lantern",
+      "required": false
+    },
+    {
+      "id": "metal_works:corroded_tin_mage_lantern",
+      "required": false
+    },
+    {
+      "id": "metal_works:waxed_tin_lantern",
+      "required": false
+    },
+    {
+      "id": "metal_works:waxed_tin_soul_lantern",
+      "required": false
+    },
+    {
+      "id": "metal_works:waxed_tin_mage_lantern",
+      "required": false
+    },
+    {
+      "id": "metal_works:waxed_tarnished_tin_lantern",
+      "required": false
+    },
+    {
+      "id": "metal_works:waxed_tarnished_tin_soul_lantern",
+      "required": false
+    },
+    {
+      "id": "metal_works:waxed_tarnished_tin_mage_lantern",
+      "required": false
+    },
+    {
+      "id": "metal_works:waxed_eroded_tin_lantern",
+      "required": false
+    },
+    {
+      "id": "metal_works:waxed_eroded_tin_soul_lantern",
+      "required": false
+    },
+    {
+      "id": "metal_works:waxed_eroded_tin_mage_lantern",
+      "required": false
+    },
+    {
+      "id": "metal_works:waxed_corroded_tin_lantern",
+      "required": false
+    },
+    {
+      "id": "metal_works:waxed_corroded_tin_soul_lantern",
+      "required": false
+    },
+    {
+      "id": "metal_works:waxed_corroded_tin_mage_lantern",
+      "required": false
+    },
+    {
+      "id": "undergarden:cloggrum_lantern",
+      "required": false
+    },
+    {
+      "id": "spelunkery:salt_lamp",
+      "required": false
+    }
+  ]
+}

@@ -74,6 +74,11 @@ public class LivelyLightingData extends SavedData {
         return new java.util.HashSet<>(disabledEntities);
     }
 
+    /** A copy of the players whose lights make no sound (/ll sound off), for the Mode message (0.10.1). */
+    public java.util.Set<UUID> soundsDisabledPlayers() {
+        return new java.util.HashSet<>(soundDisabledPlayers);
+    }
+
     public boolean arePlayerSoundsDisabled(UUID uuid) {
         return soundDisabledPlayers.contains(uuid);
     }

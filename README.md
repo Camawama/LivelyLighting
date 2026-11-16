@@ -155,8 +155,8 @@ This structure allows for easy management of custom light sources without clutte
 *   **`tnt_lighting`** (Boolean): If enabled, ignited TNT flashes light. Default: `true`.
 *   **`burning_entity_lighting`** (Boolean): If enabled, entities on fire emit light level 15. Default: `true`.
 *   **`glowing_effect_lighting`** (Boolean): If enabled, entities with the Glowing effect emit light level 6. Default: `true`.
-*   **`enable_particles`** (Boolean): Master toggle for particle effects. Default: `true`.
-*   **`enable_sounds`** (Boolean): Master toggle for sound effects. Default: `true`.
+*   **`enable_particles`** (Boolean): Master toggle for the particles of a light being taken out or going out (a definition's `particles`, the smoke of a torch put out by water or rain). Default: `true`.
+*   **`enable_sounds`** (Boolean): Master toggle for the sounds of a light being taken out or going out. Default: `true`. In `server_blocks` mode the server plays these effects; in `client` and `hybrid` each client with Lively Lighting plays them for the lights it draws, at the holder's hand or belt (0.10.1), and the server plays them only for the players it lights. A light first seen already shining (someone walking into view with a torch) plays nothing, nor does one lit again within a second of going out (switching back and forth between slots); one ignition per holder every half second at most.
 *   **`smoothing`** (Boolean): Smooth light movement and trails. Default: `true`.
 *   **`smoothing_all_entities`** (Boolean): Smoothing for all entities, not just players. Can be laggy. Default: `false`.
 *   **`trail_decay_rate`** (Integer): How fast a moving light's trail fades. Default: `2`.
@@ -175,7 +175,9 @@ This structure allows for easy management of custom light sources without clutte
 *   **`gameplay_light`** (Boolean): Dynamic light counts as the world's own light on the server: mob spawning, snow and ice melting, crops and anything else that asks how bright a place is see the carried, worn and burning lights and other mods' lights, as they saw the light blocks. Each light counts with its source's level, losing a level per block. Idle in `server_blocks` mode. Default: `true`.
 *   **`gameplay_light_occlusion`** (Boolean): With `gameplay_light`: that light stops at walls and goes round corners as a placed lamp's does (a level a block, more through leaves and water, none through an opaque block), and a spot light counts inside its cone only, dimming along its beam, where a straight line from it is clear. A ship's blocks stop nothing. Off: a straight count through everything, every light a point light, as 0.6.0. Default: `true`.
 *   **`gameplay_light_max_sources`** (Integer): With `gameplay_light`: at most this many lights are counted per world. The players' own lights always count; the others (burning and glowing entities, dropped items, item frames, other mods' lights) fill what is left, the nearest to a player first, and the rest give the world no light until they are among the nearest. `0` = no cap. Default: `256`.
-*   **`curios_lighting`** (Boolean): With Curios installed, an item with a light level worn in a curio slot (a torch or lantern on a belt) lights its wearer like one in the off hand; the light takes the colour Colorful Lighting gives that item. Lively Lighting also puts the torches and lanterns in Curios' `belt` tag, so a pack with a belt slot (Spyglass Improvements adds one) can hang them there. Default: `true`.
+*   **`curios_lighting`** (Boolean): With Curios installed, an item with a light level worn in a curio slot (a lantern on a belt) lights its wearer like one in the off hand; the light takes the colour Colorful Lighting gives that item. Default: `true`.
+
+**Lanterns on the belt (0.10.1).** With Curios, Lively Lighting gives players a `belt` slot and puts the item tag `#livelylighting:belt_lanterns` in Curios' `belt` tag. The tag holds vanilla's lantern and soul lantern and, each optional, the hanging lanterns of SecurityCraft, Biomancy, Caverns & Chasms, Deep Aether, The Endergetic Expansion, Metal Works and The Undergarden, and Spelunkery's salt lamp; a pack adds its own lanterns with a tag file of the same name (`data/livelylighting/tags/items/belt_lanterns.json`, `"replace": false`) or KubeJS. Torches no longer go on the belt. A lantern on the belt is drawn hanging at the hip on the side away from the main hand, chain up, at half size and as bright as its own light (its own hanging model; an item without a hanging state is drawn as its item); one with a Curios renderer of its own keeps it. Taking out a lantern without a sound of its own clinks its chain.
 
 ### Performance Settings (the server module)
 
@@ -208,10 +210,12 @@ Each file in this directory defines a single item's dynamic lighting properties.
   "light_level": 14,
   "water_sensitive": true,
   "particles": "minecraft:flame,minecraft:smoke",
-  "activate_sounds": "minecraft:block.fire.ambient:1.0:1.0",
-  "deactivate_sounds": "minecraft:block.fire.extinguish"
+  "activate_sounds": "minecraft:item.firecharge.use:0.15:1.7",
+  "deactivate_sounds": "minecraft:block.fire.extinguish:0.35:1.8"
 }
 ```
+
+The default files (0.10.1): torches whoosh softly with a little flame and smoke, and hiss when water or rain puts them out; lanterns clink on their chain with no flame; campfires crackle; a lava bucket pops; glowstone, sea lanterns and shroomlights sparkle; blaze rods, magma cream and jack o'lanterns give a small flame; a beacon chimes once; the conduit, the ender chest, the enchanting table, end rods, nether stars and end crystals give particles only. A default file nobody edited is rewritten with these on load; an edited one is left as it is.
 
 *   **`item_id`**: The registry name of the item. Supports regex (e.g., `regex:.*torch`). **Note:** While powerful, complex regex patterns can impact performance. Prefer simple patterns or exact IDs when possible.
 *   **`light_level`**: The light level (0-15).
@@ -274,7 +278,7 @@ mammals found to glow under ultraviolet. A file can be deleted or edited; the de
 *   `/ll reload`: Reloads all config files and definitions.
 *   `/ll purge`: Removes all light blocks from the world.
 *   `/ll toggle [entity]`: Toggles dynamic lighting for a specific entity.
-*   `/ll sound <on|off>`: Toggles dynamic lighting sounds for yourself (client-side preference).
+*   `/ll sound <on|off>`: Switches the sounds of your own lights on or off, for everyone who hears them (kept by the server and told to the clients that play the sounds themselves).
 *   `/ll add <entity> <level>`: Forces an entity to emit light.
 *   `/ll remove <entity>`: Removes forced light from an entity.
 *   `/ll config <option> <value>`: Modifies main config options in-game.
