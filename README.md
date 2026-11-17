@@ -79,7 +79,8 @@ Mobility's karts carry headlights of their own through Camafy's dynamic light AP
 *   **`transmission`** (`voxel`, `off`): how dynamic light passes through blocks on the shader path (Colorful Lighting 2.9.0): `voxel` propagates each light through a 96-block cube of the blocks round the camera as a placed lamp's light spreads, stopped by walls, tinted by stained glass, round corners, ships' blocks included; `off` lets it through everything, as other dynamic lighting mods do.
 *   **`draw_without_server`** (true): on a server without Lively Lighting this client draws the light it can see.
 *   **`scaled_lamp_max_reach`** (24, 15 to 48): with `lamps_scale_with_ships`, the furthest in blocks an enlarged ship's lamp reaches on the shader renderer (a full-size lamp reaches 15). A lamp reaching past 15 blocks takes one of the 16 light paths of that reach, past 24 one of 4 (Colorful Lighting's slab classes); the lights beyond those shine through walls.
-*   **`frames_on_ships_are_headlights`** (true): a lit item in an item frame on a Valkyrien Skies ship is a headlight along the frame's facing, turned with the ship.
+*   **`frames_on_ships_are_headlights`** (true): a lit item in a glow item frame on a Valkyrien Skies ship is a headlight along the frame's facing, turned with the ship. A plain item frame keeps its item's own round light, so a ship can store torches and lanterns in frames without casting beams; **`plain_frames_are_headlights`** (false) makes plain frames beams too (0.10.2).
+*   **`frame_lights_off_when_powered`** (true, common): a redstone signal into the block an item frame hangs on switches the frame's light off (0.10.2); see "Headlights you can switch".
 *   **The world's lamps on ships** (0.9.0, `client.world_lamps_per_ship`, 8, 0 for off): with `vs_support`, the shader renderer and Colorful Lighting 2.13.0 or newer, the lamps of the world light the Valkyrien Skies ships beside them, the ones that reach a ship brightest first, in their own colour and with the ship's blocks in their way. They are drawn on ships' blocks alone; the world is left as it is. A block of a ship or a contraption that Colorful Lighting makes absorb light (an end gateway) takes light there too instead of giving it.
 *   **Lights that absorb** (0.8.0): a definition's `"color": "absorb"` (or a stack's `color_nbt` tag saying `absorb`) makes its light take light away instead of giving it, with the definition's level, shape, cone and range: an item that darkens the room round its holder, a beam that cuts a dark cone. `"absorb:#00FFFF"` takes only those channels. Client module only, with Colorful Lighting 2.12.0 or newer; for the server module and for anything that asks how bright a place is it is no light at all.
 *   **`headlight_spill`** (10, 0 to 15, 0 for off) and **`headlight_spill_reach`** (4.0 blocks): what such a headlight spills round itself, and how far. The beam points away from the ship, so without the spill nothing showed where it came from: the frame and its item are drawn lit, and the ship's blocks beside it take a dim light of this level.
@@ -124,6 +125,20 @@ can't reach past 15 blocks, so in `server_blocks` mode a shrunk ship's lamps shr
 In the client module a lit item in an item frame on a ship is scaled the same way. A ship's fires and a Create contraption's
 lamps aren't scaled, and where Colorful Lighting propagates the light without its shaders the light loses a level a block
 at every size.
+
+### Headlights you can switch
+
+A glow item frame holding a light on a ship is a headlight. Power the block the frame hangs on and its light goes out; take
+the power away and it shines again (`frame_lights_off_when_powered`, 0.10.2). Any block works, and the signal is read the way
+vanilla reads it for that block, so whatever powers a block powers the switch. It works on ships (Camafy's ship redstone powers
+ship blocks across the ship's edge as on land), on land, in the client renderer and for the server's light blocks, and needs no
+extra packets. Plain frames' round lights follow the same rule.
+
+*   **A light switch:** a lever on the block the frame hangs on (on its top or on a side face). Lever on: dark. Lever off: lit.
+*   **Night-only headlights:** a daylight sensor on top of that block. By day the sensor powers the block and the headlight is
+    off; at night the sensor is quiet and the headlight shines. No inverter needed.
+*   **One switch for a whole row:** a row of headlights on one wall with redstone dust behind it, a lever or a button at the
+    helm feeding the dust. A pulse from a button switches them off for the button's press; a lever holds them.
 
 ## Configuration
 

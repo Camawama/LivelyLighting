@@ -153,6 +153,10 @@ public class LivelyConfig {
     public boolean light_source_colors = true;
     /** With Curios: an item with a light level worn in a curio slot (a torch or lantern on a belt) lights its wearer. */
     public boolean curios_lighting = true;
+    // A redstone signal into the block an item frame hangs on switches the frame's light off (0.10.2): a lever on that block
+    // is a light switch, a daylight sensor on it makes night-only headlights. Unpowered, a frame shines as before. Read as
+    // vanilla reads a block's signal (its six neighbours), on ships too, on the client and for the server's light blocks.
+    public boolean frame_lights_off_when_powered = true;
     // Dynamic light counts as the world's own light on the server (0.6.0): mob spawning, snow and ice melting, crops
     // and anything else that asks how bright a place is, as the light blocks gave it. A point light of each source's
     // level losing a level per block, from carried, worn and burning lights and other mods' lights. Idle in
@@ -215,6 +219,9 @@ public class LivelyConfig {
         // A lit item in an item frame on a Valkyrien Skies ship is a headlight (0.6.1): a cone along the frame's facing, turned
         // with the ship, the default cone and reach; off, it is the point light it is on the ground.
         public boolean frames_on_ships_are_headlights = true;
+        // Plain item frames on ships are headlights too (0.10.2). Off (the default), only a glow item frame turns its item into
+        // a beam; a plain frame keeps the item's own round light, so a ship can store lights in frames without casting beams.
+        public boolean plain_frames_are_headlights = false;
         // What a headlight on a ship spills round itself, as a light level, 0 to 15, 0 for off (0.7.1): the beam points away
         // from the ship, so without it nothing showed where the beam came from. The frame and its item are drawn lit by it
         // too (lit_carriers), and the ship's blocks beside the frame take the spill as any dim light.

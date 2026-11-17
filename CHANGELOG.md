@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.10.2 — Unreleased
+
+### Added
+
+- **Headlights you can switch** (2026-11-16, `source.FrameSwitch`, `frame_lights_off_when_powered`). A redstone signal into the
+  block an item frame hangs on switches the frame's light off; unpowered it shines as before, so no existing build changes. A
+  lever on that block is a light switch, a daylight sensor on it gives night-only headlights without an inverter, and dust
+  behind a wall of headlights switches the whole row. The signal is read as vanilla reads it for that block (its six
+  neighbours), so it works on Valkyrien Skies ships and on land, in the client renderer and for the server's light blocks and
+  the gameplay light, with no packets; on the server a frame whose neighbours' chunks aren't loaded counts as unpowered.
+  Plain frames' round lights follow the same switch.
+
+### Changed
+
+- **Only glow item frames make headlights** (`client.plain_frames_are_headlights`, false). A plain item frame on a ship keeps
+  its item's own round light, so a ship can store torches and lanterns in frames without casting beams; a glow item frame
+  turns its item into a headlight as before. Set the option to make plain frames beams again.
+
+### Fixed
+
+- **Item frames popping off turning ships**: fixed in Camafy 0.1.112 (patch `vs_hanging_entities`). Valkyrien Skies searched
+  for a frame's neighbours with the turned box of the frame in the world, which at rolls and yaws that weren't right angles
+  reached the frames beside it, and the frame dropped.
+
 ## 0.10.1 — Unreleased
 
 ### Added

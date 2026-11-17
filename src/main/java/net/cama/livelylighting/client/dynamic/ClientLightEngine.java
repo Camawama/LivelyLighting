@@ -573,8 +573,10 @@ public final class ClientLightEngine {
         }
         if (shape == LightShape.SPOT) {
             direction = pt -> entity instanceof LivingEntity ? entity.getViewVector(pt) : entity.getLookAngle();
-        } else if (ship != null && entity instanceof ItemFrame frame && config.client.frames_on_ships_are_headlights) {
-            // a lit item in a frame on a ship is a headlight: a cone along the frame's facing, turned with the ship (0.6.1)
+        } else if (ship != null && entity instanceof ItemFrame frame && config.client.frames_on_ships_are_headlights
+                && (frame instanceof net.minecraft.world.entity.decoration.GlowItemFrame || config.client.plain_frames_are_headlights)) {
+            // a lit item in a glow item frame on a ship is a headlight: a cone along the frame's facing, turned with the ship
+            // (0.6.1); a plain frame keeps the item's round light (0.10.2), so a ship can store lights without casting beams
             Vec3 local = Vec3.atLowerCornerOf(frame.getDirection().getNormal());
             direction = pt -> {
                 Vec3 d = ship.dirToWorld(local);

@@ -340,6 +340,8 @@ public class LightCalculator {
         }
 
         if (entity instanceof ItemFrame itemFrame) {
+            // a redstone signal into the block the frame hangs on switches it off (0.10.2), its own glow included
+            if (net.cama.livelylighting.source.FrameSwitch.switchedOff(itemFrame, level, config)) return EMPTY_LIGHT_DATA;
             LightData frameLight = getItemLightLevel(itemFrame.getItem(), entity, level, config);
             LightData best = entityLight;
             if (frameLight.level > best.level) best = frameLight;
