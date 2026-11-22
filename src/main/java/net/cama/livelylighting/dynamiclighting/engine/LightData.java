@@ -34,8 +34,16 @@ public class LightData {
      * one item, a colour a stack. A stack without the key keeps {@link #color}.
      */
     public final String colorNbt;
+    /**
+     * A spot's zoom (0.11.0, {@code "zoom"} in an item definition): its stacks set their cone and reach by a step in their
+     * tag, between the zoom's wide and tight ends; null for a fixed cone. A definition {@link #zoomed} to a step keeps it.
+     */
+    @org.jetbrains.annotations.Nullable
+    public final net.cama.livelylighting.source.BeamZoom zoom;
     /** This definition in each colour its stacks have named, made once a colour. */
     private final java.util.concurrent.ConcurrentHashMap<Integer, LightData> tinted = new java.util.concurrent.ConcurrentHashMap<>();
+    /** This definition at each step of its zoom, made once a step. */
+    private volatile java.util.concurrent.atomic.AtomicReferenceArray<LightData> zoomedSteps;
 
     /**
      * Ultraviolet (0.7.0): the colour of a blacklight, the value Colorful Lighting 2.11.0 takes for one
@@ -69,7 +77,14 @@ public class LightData {
 
     public LightData(int level, boolean waterSensitive, List<ParticleType<?>> particles, List<SoundData> sounds, List<SoundData> extinguishSounds,
                      LightShape shape, float coneDegrees, float range, int color, String colorNbt) {
+        this(level, waterSensitive, particles, sounds, extinguishSounds, shape, coneDegrees, range, color, colorNbt, null);
+    }
+
+    public LightData(int level, boolean waterSensitive, List<ParticleType<?>> particles, List<SoundData> sounds, List<SoundData> extinguishSounds,
+                     LightShape shape, float coneDegrees, float range, int color, String colorNbt,
+                     @org.jetbrains.annotations.Nullable net.cama.livelylighting.source.BeamZoom zoom) {
         this.colorNbt = colorNbt == null || colorNbt.isBlank() ? null : colorNbt.trim();
+        this.zoom = zoom;
         this.level = level;
         this.waterSensitive = waterSensitive;
         this.particles = particles;
@@ -91,14 +106,39 @@ public class LightData {
 
     /** The same definition at another level (a fade, a forced level). */
     public LightData withLevel(int newLevel) {
-        return new LightData(newLevel, waterSensitive, particles, sounds, extinguishSounds, shape, coneDegrees, range, color, colorNbt);
+        return new LightData(newLevel, waterSensitive, particles, sounds, extinguishSounds, shape, coneDegrees, range, color, colorNbt, zoom);
     }
 
     /** The same definition in another colour (the one a stack's tag names); itself for its own colour. */
     public LightData withColor(int newColor) {
         if (newColor == color) return this;
         if (tinted.size() > 512) tinted.clear(); // colours without end (a script cycling hues): start over
-        return tinted.computeIfAbsent(newColor, c -> new LightData(level, waterSensitive, particles, sounds, extinguishSounds, shape, coneDegrees, range, c, colorNbt));
+        return tinted.computeIfAbsent(newColor, c -> new LightData(level, waterSensitive, particles, sounds, extinguishSounds, shape, coneDegrees, range, c, colorNbt, zoom));
+    }
+
+    /**
+     * The same definition at a step of its zoom (0.11.0): the cone and the reach of that step, everything else kept, the zoom
+     * with it. Itself without a zoom. Made once a step.
+     */
+    public LightData zoomed(int step) {
+        if (zoom == null || shape != LightShape.SPOT) return this;
+        step = zoom.clamp(step);
+        java.util.concurrent.atomic.AtomicReferenceArray<LightData> steps = zoomedSteps;
+        if (steps == null) {
+            synchronized (this) {
+                steps = zoomedSteps;
+                if (steps == null) zoomedSteps = steps = new java.util.concurrent.atomic.AtomicReferenceArray<>(zoom.steps() + 1);
+            }
+        }
+        LightData at = steps.get(step);
+        if (at == null) {
+            float cone = zoom.coneAt(step), reach = zoom.rangeAt(step);
+            at = Float.compare(cone, coneDegrees) == 0 && Float.compare(reach, range) == 0 ? this
+                    : new LightData(level, waterSensitive, particles, sounds, extinguishSounds, shape, cone, reach, color, colorNbt, zoom);
+            steps.compareAndSet(step, null, at);
+            at = steps.get(step);
+        }
+        return at;
     }
 
     /** The reach in blocks this light is drawn to. */
@@ -118,6 +158,7 @@ public class LightData {
                Float.compare(range, that.range) == 0 &&
                color == that.color &&
                Objects.equals(colorNbt, that.colorNbt) &&
+               Objects.equals(zoom, that.zoom) &&
                Objects.equals(particles, that.particles) &&
                Objects.equals(sounds, that.sounds) &&
                Objects.equals(extinguishSounds, that.extinguishSounds);
@@ -125,6 +166,6 @@ public class LightData {
 
     @Override
     public int hashCode() {
-        return Objects.hash(level, waterSensitive, particles, sounds, extinguishSounds, shape, coneDegrees, range, color, colorNbt);
+        return Objects.hash(level, waterSensitive, particles, sounds, extinguishSounds, shape, coneDegrees, range, color, colorNbt, zoom);
     }
 }

@@ -63,6 +63,14 @@ red flashlight and a blacklight of the same item. A blacklight (`uv`, `blackligh
 2.11.0 or later on the client: its light is a dim violet that makes saturated colours glow. With an older Colorful Lighting, and
 as the server module's light blocks, it is a plain violet light.
 
+A spot definition can zoom (0.11.0): `"zoom": {"nbt": "zoom", "steps": 8, "wide": [60, 30], "tight": [12, 90]}` lets each stack set its cone
+and reach by a step in its tag (the key `nbt` names, 0 at the wide end to `steps` at the tight one; each end is `[degrees, blocks]` or
+`{"cone_degrees": d, "range": r}`), the cone narrowing and the beam reaching farther step by step as the head of a zoom flashlight slides.
+Sneaking with such an item in either hand, the mouse wheel narrows (up) or widens (down) the beam one step a notch instead of scrolling the
+hotbar; the server sets the step on the stack, so every client draws the same cone, and the holder sees the setting on the action bar and
+in the tooltip. A stack without the tag keeps the definition's own `cone_degrees` and `range`; its first notch starts from the step nearest
+them. `beam_zoom` (common, true) switches the gesture off on either side.
+
 To try a flashlight, give any item a definition with a shape: a file `config/livelylighting/item_definitions/spyglass_flashlight.json` with
 `{"item_id": "minecraft:spyglass", "light_level": 14, "shape": "spot", "cone_degrees": 35, "range": 32, "color": "#FFF2CC"}` makes a held
 spyglass a flashlight pointing where you look (`/ll reload` reads it in). Headlights on blocks: a definition in `block_definitions/` with
@@ -81,6 +89,7 @@ Mobility's karts carry headlights of their own through Camafy's dynamic light AP
 *   **`scaled_lamp_max_reach`** (24, 15 to 48): with `lamps_scale_with_ships`, the furthest in blocks an enlarged ship's lamp reaches on the shader renderer (a full-size lamp reaches 15). A lamp reaching past 15 blocks takes one of the 16 light paths of that reach, past 24 one of 4 (Colorful Lighting's slab classes); the lights beyond those shine through walls.
 *   **`frames_on_ships_are_headlights`** (true): a lit item in a glow item frame on a Valkyrien Skies ship is a headlight along the frame's facing, turned with the ship. A plain item frame keeps its item's own round light, so a ship can store torches and lanterns in frames without casting beams; **`plain_frames_are_headlights`** (false) makes plain frames beams too (0.10.2).
 *   **`frame_lights_off_when_powered`** (true, common): a redstone signal into the block an item frame hangs on switches the frame's light off (0.10.2); see "Headlights you can switch".
+*   **`beam_zoom`** (true, common): a spot light whose definition has a `zoom` (the pack's flashlight) is narrowed or widened by the mouse wheel while its holder sneaks (0.11.0); off, the wheel always scrolls the hotbar and the server takes no step.
 *   **The world's lamps on ships** (0.9.0, `client.world_lamps_per_ship`, 8, 0 for off): with `vs_support`, the shader renderer and Colorful Lighting 2.13.0 or newer, the lamps of the world light the Valkyrien Skies ships beside them, the ones that reach a ship brightest first, in their own colour and with the ship's blocks in their way. They are drawn on ships' blocks alone; the world is left as it is. A block of a ship or a contraption that Colorful Lighting makes absorb light (an end gateway) takes light there too instead of giving it.
 *   **Lights that absorb** (0.8.0): a definition's `"color": "absorb"` (or a stack's `color_nbt` tag saying `absorb`) makes its light take light away instead of giving it, with the definition's level, shape, cone and range: an item that darkens the room round its holder, a beam that cuts a dark cone. `"absorb:#00FFFF"` takes only those channels. Client module only, with Colorful Lighting 2.12.0 or newer; for the server module and for anything that asks how bright a place is it is no light at all.
 *   **`headlight_spill`** (10, 0 to 15, 0 for off) and **`headlight_spill_reach`** (4.0 blocks): what such a headlight spills round itself, and how far. The beam points away from the ship, so without the spill nothing showed where it came from: the frame and its item are drawn lit, and the ship's blocks beside it take a dim light of this level.

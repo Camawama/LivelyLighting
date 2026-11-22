@@ -69,6 +69,8 @@ public final class ClientLights {
         // a page of the client keys in Embeddium's video settings (0.6.0)
         if (ModList.get().isLoaded("embeddium")) net.cama.livelylighting.client.EmbeddiumOptions.register();
         MinecraftForge.EVENT_BUS.addListener(SpotBeams::render);
+        // a zoomable spot light in hand (the pack's flashlight) is narrowed and widened by the wheel while sneaking (0.11.0)
+        ZoomScroll.init();
         LOGGER.info("[LivelyLighting] client module ready ({})", colorful ? "Colorful Lighting draws the light" : "standalone lightmap renderer");
     }
 

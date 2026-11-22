@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.11.0 — Unreleased
+
+### Added
+
+- **A spot light's cone can change while it shines** (2026-11-21). A light another mod gives through Camafy's dynamic light
+  API may give a new cone angle every tick (a headlight that narrows as a kart speeds up, a searchlight that opens), and
+  the next frame draws it: the client module passed the angle on each tick already, and Colorful Lighting 2.14.3 now
+  rebuilds the slab that says where a light may go when its cone changes (it was pruned to the cone the light had when the
+  slab was built, plus thirty degrees, and a beam opened wider than that stayed cut at the old edge until the light moved
+  or turned). The server's gameplay light counted the new cone already.
+- **A zoom for flashlights** (`source.BeamZoom`, `source.BeamScroll`, `client.dynamic.ZoomScroll`; `beam_zoom`, true). A
+  spot definition with `"zoom": {"nbt": "zoom", "steps": 8, "wide": [60, 30], "tight": [12, 90]}` lets each stack set its
+  cone and reach by a step in its tag: the wide end a short flood, the tight end a long narrow beam, the steps between
+  them in a line, as the head of a zoom flashlight slides. Sneaking with such an item in either hand, the mouse wheel
+  narrows (up) or widens (down) the beam one step a notch instead of scrolling the hotbar; standing, or with anything
+  else in hand, the wheel scrolls the hotbar as before, and there is no key to bind. The client sends the notch and the
+  server moves the step on the stack's tag (only the notch's sign is read, the item is read from the player's own hands,
+  a burst of eight notches and then one every two ticks), so every client draws the same cone; the holder sees the
+  setting on the action bar (`Beam 36° · 60 blocks`) and hears a soft click, and the item's tooltip names its beam and the
+  gesture. A stack without the tag keeps the definition's own `cone_degrees` and `range`, and its first notch starts from
+  the step nearest them. A flashlight switched off zooms all the same, as a real one does. The pack's flashlight
+  (`kubejs:flashlight`) has the zoom above in its definition.
+
 ## 0.10.2 — Unreleased
 
 ### Added

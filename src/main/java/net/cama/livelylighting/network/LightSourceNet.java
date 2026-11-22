@@ -1,6 +1,7 @@
 package net.cama.livelylighting.network;
 
 import net.cama.livelylighting.LivelyLighting;
+import net.cama.livelylighting.source.BeamScroll;
 import net.cama.livelylighting.source.LightMode;
 import net.camacraft.camafy.network.CamafyChannel;
 import net.camacraft.camafy.network.Packets;
@@ -62,6 +63,9 @@ public final class LightSourceNet {
         net = CamafyChannel.createOptional(ResourceLocation.fromNamespaceAndPath(LivelyLighting.MODID, "light_sources"), "3");
         net.clientbound(Lights.class, Lights::encode, Lights::decode, Lights::handle);
         net.clientbound(Mode.class, Mode::encode, Mode::decode, Mode::handle);
+        // 0.11.0: one notch of a sneaking holder's mouse wheel on a zoomable spot light (source.BeamScroll). After the two
+        // above, so the ids before it stand; the version stays, an older server logs an unknown message and nothing more.
+        net.serverbound(Zoom.class, Zoom::encode, Zoom::decode, Zoom::handle);
     }
 
     public static boolean ready() {
@@ -71,6 +75,18 @@ public final class LightSourceNet {
     /** Whether the player's client has this version of the mod (and so draws its own light in the client modes). */
     public static boolean hasChannel(ServerPlayer player) {
         return net != null && net.hasChannel(player);
+    }
+
+    /** The channel itself (null before registration), for the client to ask whether its server has it. */
+    @Nullable
+    public static CamafyChannel channel() {
+        return net;
+    }
+
+    /** From the client: one notch of the wheel on a zoomable spot light in hand, +1 tighter, -1 wider (0.11.0). */
+    public static void sendZoom(int dir) {
+        if (net == null || (dir != 1 && dir != -1)) return;
+        net.toServer(new Zoom(dir));
     }
 
     /** What a client does with the lights it is sent (Lively Lighting's client half sets it). */
@@ -130,6 +146,21 @@ public final class LightSourceNet {
                 Consumer<List<Entry>> sink = clientSink;
                 if (sink != null) sink.accept(msg.entries);
             });
+        }
+    }
+
+    /** A notch of a sneaking holder's mouse wheel (0.11.0): +1 narrows the beam, -1 widens it. The server reads only the sign. */
+    record Zoom(int dir) {
+        static void encode(Zoom msg, FriendlyByteBuf buf) {
+            buf.writeByte(msg.dir);
+        }
+
+        static Zoom decode(FriendlyByteBuf buf) {
+            return new Zoom(buf.readByte());
+        }
+
+        static void handle(Zoom msg, Supplier<NetworkEvent.Context> ctx) {
+            Packets.handleServer(ctx, player -> BeamScroll.serverScroll(player, msg.dir > 0 ? 1 : -1));
         }
     }
 

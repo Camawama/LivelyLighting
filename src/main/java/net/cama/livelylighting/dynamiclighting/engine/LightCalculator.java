@@ -107,14 +107,18 @@ public class LightCalculator {
         return new LightData(level, false, Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
     }
 
-    /** The optional shape keys of a definition: {@code shape}, {@code cone_degrees}, {@code range}, {@code color}, {@code color_nbt}. */
+    /** The optional shape keys of a definition: {@code shape}, {@code cone_degrees}, {@code range}, {@code color}, {@code color_nbt}, {@code zoom} (0.11.0, a spot's). */
     static LightData withShape(JsonObject json, int level, boolean sensitive, List<ParticleType<?>> particles, List<SoundData> sounds, List<SoundData> extinguish) {
         LightShape shape = json.has("shape") ? LightShape.parse(json.get("shape").getAsString(), LightShape.POINT) : LightShape.POINT;
         float cone = json.has("cone_degrees") ? json.get("cone_degrees").getAsFloat() : 0f;
         float range = json.has("range") ? json.get("range").getAsFloat() : 0f;
         int color = json.has("color") ? parseColor(json.get("color").getAsString()) : -1;
         String colorNbt = json.has("color_nbt") && json.get("color_nbt").isJsonPrimitive() ? json.get("color_nbt").getAsString() : null;
-        return new LightData(level, sensitive, particles, sounds, extinguish, shape, cone, range, color, colorNbt);
+        net.cama.livelylighting.source.BeamZoom zoom = shape == LightShape.SPOT && json.has("zoom") && json.get("zoom").isJsonObject()
+                ? net.cama.livelylighting.source.BeamZoom.parse(json.getAsJsonObject("zoom"), cone > 0 ? cone : LightShape.DEFAULT_CONE_DEGREES,
+                        range > 0 ? range : LightShape.DEFAULT_SPOT_RANGE)
+                : null;
+        return new LightData(level, sensitive, particles, sounds, extinguish, shape, cone, range, color, colorNbt, zoom);
     }
 
     /**
@@ -450,7 +454,10 @@ public class LightCalculator {
         return config.enchanted_items_glow && stack.isEnchanted() ? ENCHANTED_LIGHT_DATA : EMPTY_LIGHT_DATA;
     }
 
-    /** The definition for a stack: one keyed to its NBT first (0.6.2), else the item's; in the colour its tag names (0.7.0). */
+    /**
+     * The definition for a stack: one keyed to its NBT first (0.6.2), else the item's; in the colour its tag names (0.7.0), at
+     * the step of its zoom its tag holds (0.11.0).
+     */
     private static LightData lookupStack(ItemStack stack, LivelyConfig config) {
         if (!nbtItems.isEmpty()) {
             ResourceLocation key = ForgeRegistries.ITEMS.getKey(stack.getItem());
@@ -458,11 +465,40 @@ public class LightCalculator {
             if (defs != null) {
                 net.minecraft.nbt.CompoundTag tag = stack.getTag();
                 for (NbtLightData def : defs) {
-                    if (net.minecraft.nbt.NbtUtils.compareNbt(def.required, tag, true)) return tinted(def.data, stack);
+                    if (net.minecraft.nbt.NbtUtils.compareNbt(def.required, tag, true)) return zoomed(tinted(def.data, stack), stack);
                 }
             }
         }
-        return tinted(lookupItem(stack.getItem(), config), stack);
+        return zoomed(tinted(lookupItem(stack.getItem(), config), stack), stack);
+    }
+
+    /** A definition at the zoom step a stack's tag holds (0.11.0); as it is without a zoom or without the tag. */
+    private static LightData zoomed(LightData data, ItemStack stack) {
+        if (data.zoom == null || data.level <= 0) return data;
+        int step = data.zoom.stepOf(stack);
+        return step < 0 ? data : data.zoomed(step);
+    }
+
+    /**
+     * The definition of a stack's item that has a zoom (0.11.0), whether or not it applies to the stack right now (a
+     * flashlight switched off is zoomed all the same, as a real one is): one of the item's NBT-keyed definitions first,
+     * then the item's own. Null for an item without one. Unzoomed: its {@code coneDegrees} is the definition's own, where a
+     * stack without the tag stands.
+     */
+    @org.jetbrains.annotations.Nullable
+    public static LightData zoomableDefinition(ItemStack stack) {
+        if (stack == null || stack.isEmpty() || stack.getItem() == Items.LIGHT) return null;
+        ResourceLocation key = ForgeRegistries.ITEMS.getKey(stack.getItem());
+        if (key != null) {
+            List<NbtLightData> defs = nbtItems.get(key);
+            if (defs != null) {
+                for (NbtLightData def : defs) if (def.data.zoom != null && def.data.level > 0) return def.data;
+            }
+            LightData byId = itemsById.get(key);
+            if (byId != null && byId.zoom != null && byId.level > 0) return byId;
+        }
+        LightData cached = itemCache.get(stack.getItem());
+        return cached != null && cached.zoom != null && cached.level > 0 ? cached : null;
     }
 
     /** What a tag's colour names came to, so a held stack's is parsed once. */

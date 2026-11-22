@@ -157,6 +157,10 @@ public class LivelyConfig {
     // is a light switch, a daylight sensor on it makes night-only headlights. Unpowered, a frame shines as before. Read as
     // vanilla reads a block's signal (its six neighbours), on ships too, on the client and for the server's light blocks.
     public boolean frame_lights_off_when_powered = true;
+    // A spot light whose definition has a "zoom" (the pack's flashlight) is narrowed or widened by the mouse wheel while its
+    // holder sneaks (0.11.0): the client takes the notch from the hotbar and asks the server, which moves the step on the
+    // stack's tag, so every client draws the same cone. Read on both sides; off on the server, no notch is taken.
+    public boolean beam_zoom = true;
     // Dynamic light counts as the world's own light on the server (0.6.0): mob spawning, snow and ice melting, crops
     // and anything else that asks how bright a place is, as the light blocks gave it. A point light of each source's
     // level losing a level per block, from carried, worn and burning lights and other mods' lights. Idle in
