@@ -630,7 +630,8 @@ public class LightCalculator {
      */
     private static final class SuffocationMemo {
         long time = Long.MIN_VALUE;
-        Level level;
+        /** Weakly: a thread's memo outlives the world it last saw (0.11.1: it kept a left world reachable). */
+        java.lang.ref.WeakReference<Level> level = new java.lang.ref.WeakReference<>(null);
         final Map<Integer, Boolean> cache = new HashMap<>();
     }
 
@@ -643,9 +644,9 @@ public class LightCalculator {
 
         SuffocationMemo memo = SUFFOCATION.get();
         long now = level.getGameTime();
-        if (now != memo.time || memo.level != level) {
+        if (now != memo.time || memo.level.get() != level) {
             memo.time = now;
-            memo.level = level;
+            if (memo.level.get() != level) memo.level = new java.lang.ref.WeakReference<>(level);
             memo.cache.clear();
         }
         Boolean cached = memo.cache.get(entity.getId());

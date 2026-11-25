@@ -54,7 +54,8 @@ public final class ClientLightMode {
         return LivelyConfig.get().client.draw_without_server && !serverHasMod();
     }
 
-    private static net.minecraft.network.Connection checkedConnection;
+    /** Weakly: the connection last asked about stays reachable after the client left it otherwise (0.11.1). */
+    private static java.lang.ref.WeakReference<net.minecraft.network.Connection> checkedConnection = new java.lang.ref.WeakReference<>(null);
     private static boolean checkedHasMod;
 
     /** Whether the server this client is on runs Lively Lighting (from the login handshake's mod list); true when unknown. */
@@ -62,7 +63,7 @@ public final class ClientLightMode {
         net.minecraft.client.multiplayer.ClientPacketListener listener = net.minecraft.client.Minecraft.getInstance().getConnection();
         if (listener == null) return true;
         net.minecraft.network.Connection connection = listener.getConnection();
-        if (connection == checkedConnection) return checkedHasMod;
+        if (connection == checkedConnection.get()) return checkedHasMod;
         boolean has = true;
         if (net.minecraftforge.network.NetworkHooks.isVanillaConnection(connection)) {
             has = false;
@@ -70,7 +71,7 @@ public final class ClientLightMode {
             net.minecraftforge.network.ConnectionData data = net.minecraftforge.network.NetworkHooks.getConnectionData(connection);
             if (data != null && data.getModList() != null) has = data.getModList().contains(net.cama.livelylighting.LivelyLighting.MODID);
         }
-        checkedConnection = connection;
+        checkedConnection = new java.lang.ref.WeakReference<>(connection);
         checkedHasMod = has;
         return has;
     }

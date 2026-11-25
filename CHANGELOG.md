@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.11.1 — Unreleased
+
+### Fixed
+
+- **A world the client leaves is no longer kept** (2026-11-24, `dynamiclighting.engine.LightCalculator`,
+  `client.dynamic.ClientLightMode`). The per-thread memo of which lit entities have their head in a block held the last
+  world it was asked about, and the check whether the server runs this mod held the last connection; both kept a world
+  the client had left reachable for the rest of the session (with its player and entities) until that thread or check
+  saw another world. Both now hold them weakly. Found with a heap dump of the main pack's client after three hops
+  between two servers.
+
 ## 0.11.0 — Unreleased
 
 ### Added
